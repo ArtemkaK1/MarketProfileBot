@@ -1,7 +1,7 @@
 //@version=5
-strategy("NASDAQ Pre-NYSE IB Extension", overlay=true, max_boxes_count=100, max_lines_count=300, max_labels_count=100)
+strategy("NASDAQ Pre-NYSE IB Extension/Raid", overlay=true, initial_capital=100000, currency=currency.USD, max_boxes_count=100, max_lines_count=300, max_labels_count=100)
 
-// Step 2: draw the pre-NYSE Initial Balance and trade only extension entries.
+// Draw the pre-NYSE Initial Balance and trade extension/raid entries.
 
 ibSessionInput = input.session("0800-0930", "Pre-NYSE IB session")
 tradeSessionInput = input.session("0930-1600", "Trade session")
@@ -9,6 +9,12 @@ timezoneInput = input.string("America/New_York", "Session timezone")
 fractalLeft = input.int(1, "Fractal left bars", minval=1, maxval=10)
 fractalRight = input.int(1, "Fractal right bars", minval=1, maxval=10)
 breakoutNeedsClose = input.bool(false, "Breakout must close beyond IB")
+enableExtensionLong = input.bool(true, "Enable extension long entries")
+enableExtensionShort = input.bool(true, "Enable extension short entries")
+enableRaidLong = input.bool(true, "Enable raid long entries")
+enableRaidShort = input.bool(true, "Enable raid short entries")
+riskCapital = input.float(100000.0, "Risk capital, USD", minval=1.0)
+riskPercent = input.float(1.0, "Risk per trade, %", minval=0.1, maxval=100.0, step=0.1)
 emaTimeframe = input.timeframe("15", "EMA timeframe")
 emaFastLength = input.int(125, "Fast EMA length", minval=1, maxval=500)
 emaSlowLength = input.int(200, "Slow EMA length", minval=1, maxval=500)
@@ -32,6 +38,11 @@ emaSlow = request.security(syminfo.tickerid, emaTimeframe, ta.ema(close, emaSlow
 longAllowed = emaFast > emaSlow
 shortAllowed = emaFast < emaSlow
 
+positionQty(float entryPrice, float slPrice) =>
+    stopDistance = math.abs(entryPrice - slPrice)
+    riskCash = riskCapital * riskPercent / 100.0
+    stopDistance > 0 and syminfo.pointvalue > 0 ? riskCash / (stopDistance * syminfo.pointvalue) : na
+
 var float ibHigh = na
 var float ibLow = na
 var float ibMid = na
@@ -50,6 +61,19 @@ var bool lowFractalReady = false
 var bool highReturnedToIB = false
 var bool lowReturnedToIB = false
 var bool extensionInvalidated = false
+var bool raidHighSeen = false
+var bool raidLowSeen = false
+var int raidFirstSide = 0
+var int raidHighBar = na
+var int raidLowBar = na
+var float raidHighExtreme = na
+var float raidLowExtreme = na
+var float raidHighFractal = na
+var float raidLowFractal = na
+var bool raidHighFractalReady = false
+var bool raidLowFractalReady = false
+var bool raidHighReturnedToIB = false
+var bool raidLowReturnedToIB = false
 
 var box ibBox = na
 var line ibHighLine = na
@@ -94,6 +118,19 @@ if newDay
     highReturnedToIB := false
     lowReturnedToIB := false
     extensionInvalidated := false
+    raidHighSeen := false
+    raidLowSeen := false
+    raidFirstSide := 0
+    raidHighBar := na
+    raidLowBar := na
+    raidHighExtreme := na
+    raidLowExtreme := na
+    raidHighFractal := na
+    raidLowFractal := na
+    raidHighFractalReady := false
+    raidLowFractalReady := false
+    raidHighReturnedToIB := false
+    raidLowReturnedToIB := false
     ibBox := na
     ibHighLine := na
     ibMidLine := na
@@ -121,6 +158,19 @@ if ibStarted
     highReturnedToIB := false
     lowReturnedToIB := false
     extensionInvalidated := false
+    raidHighSeen := false
+    raidLowSeen := false
+    raidFirstSide := 0
+    raidHighBar := na
+    raidLowBar := na
+    raidHighExtreme := na
+    raidLowExtreme := na
+    raidHighFractal := na
+    raidLowFractal := na
+    raidHighFractalReady := false
+    raidLowFractalReady := false
+    raidHighReturnedToIB := false
+    raidLowReturnedToIB := false
     ibBox := na
     ibHighLine := na
     ibMidLine := na
@@ -162,6 +212,32 @@ if lowBreakout
     lowBreakoutSeen := true
     lowBreakoutBar := bar_index
 
+canRaidHighBreakout = raidFirstSide == 0 or (raidFirstSide == -1 and raidLowReturnedToIB)
+canRaidLowBreakout = raidFirstSide == 0 or (raidFirstSide == 1 and raidHighReturnedToIB)
+raidHighBreakout = ibReady and inTrade and not tradeTaken and canRaidHighBreakout and not raidHighSeen and (breakoutNeedsClose ? close > ibHigh : high > ibHigh)
+raidLowBreakout = ibReady and inTrade and not tradeTaken and canRaidLowBreakout and not raidLowSeen and not raidHighBreakout and (breakoutNeedsClose ? close < ibLow : low < ibLow)
+
+if raidHighBreakout
+    raidHighSeen := true
+    raidFirstSide := raidFirstSide == 0 ? 1 : raidFirstSide
+    raidHighBar := bar_index
+    raidHighExtreme := high
+if raidLowBreakout
+    raidLowSeen := true
+    raidFirstSide := raidFirstSide == 0 ? -1 : raidFirstSide
+    raidLowBar := bar_index
+    raidLowExtreme := low
+
+if raidHighSeen and (raidFirstSide != 1 or not raidLowSeen) and high > ibHigh
+    raidHighExtreme := na(raidHighExtreme) ? high : math.max(raidHighExtreme, high)
+if raidLowSeen and (raidFirstSide != -1 or not raidHighSeen) and low < ibLow
+    raidLowExtreme := na(raidLowExtreme) ? low : math.min(raidLowExtreme, low)
+
+if raidFirstSide == 1 and raidHighSeen and not raidHighReturnedToIB and low <= ibHigh
+    raidHighReturnedToIB := true
+if raidFirstSide == -1 and raidLowSeen and not raidLowReturnedToIB and high >= ibLow
+    raidLowReturnedToIB := true
+
 pivotHigh = ta.pivothigh(high, fractalLeft, fractalRight)
 pivotLow = ta.pivotlow(low, fractalLeft, fractalRight)
 pivotBar = bar_index - fractalRight
@@ -183,6 +259,16 @@ if newLowExtensionFractal
         line.delete(lowFractalLine)
     lowFractalLine := line.new(pivotBar, lowExtensionFractal, bar_index + 1, lowExtensionFractal, extend=extend.right, color=color.new(color.orange, 0), width=2)
 
+newRaidHighFractal = raidHighSeen and not na(pivotHigh) and pivotBar >= raidHighBar and pivotHigh > ibHigh
+newRaidLowFractal = raidLowSeen and not na(pivotLow) and pivotBar >= raidLowBar and pivotLow < ibLow
+
+if newRaidHighFractal
+    raidHighFractal := pivotHigh
+    raidHighFractalReady := true
+if newRaidLowFractal
+    raidLowFractal := pivotLow
+    raidLowFractalReady := true
+
 highReturnedBeforeBar = highReturnedToIB
 lowReturnedBeforeBar = lowReturnedToIB
 
@@ -192,8 +278,8 @@ shortBosBeforeReturn = lowBreakoutSeen and lowFractalReady and not lowReturnedBe
 if longBosBeforeReturn or shortBosBeforeReturn
     extensionInvalidated := true
 
-longExtensionSignal = highBreakoutSeen and highFractalReady and highReturnedBeforeBar and not extensionInvalidated and inTrade and not tradeTaken and close > highExtensionFractal
-shortExtensionSignal = lowBreakoutSeen and lowFractalReady and lowReturnedBeforeBar and not extensionInvalidated and inTrade and not tradeTaken and close < lowExtensionFractal
+longExtensionSignal = highBreakoutSeen and not lowBreakoutSeen and highFractalReady and highReturnedBeforeBar and not extensionInvalidated and inTrade and not tradeTaken and close > highExtensionFractal
+shortExtensionSignal = lowBreakoutSeen and not highBreakoutSeen and lowFractalReady and lowReturnedBeforeBar and not extensionInvalidated and inTrade and not tradeTaken and close < lowExtensionFractal
 
 highReturnToIB = highBreakoutSeen and highFractalReady and not highReturnedToIB and not extensionInvalidated and low <= ibHigh
 lowReturnToIB = lowBreakoutSeen and lowFractalReady and not lowReturnedToIB and not extensionInvalidated and high >= ibLow
@@ -203,19 +289,48 @@ if highReturnToIB
 if lowReturnToIB
     lowReturnedToIB := true
 
-longExtension = longExtensionSignal and longAllowed
-shortExtension = shortExtensionSignal and shortAllowed
+longExtension = enableExtensionLong and longExtensionSignal and longAllowed
+shortExtension = enableExtensionShort and shortExtensionSignal and shortAllowed
+directRaidShortSignal = raidFirstSide == 1 and raidLowBreakout and not raidLowFractalReady and close < ibLow
+directRaidLongSignal = raidFirstSide == -1 and raidHighBreakout and not raidHighFractalReady and close > ibHigh
+nextBarRaidShortSignal = raidFirstSide == 1 and raidLowSeen and bar_index == raidLowBar + 1 and not raidLowFractalReady and close < ibLow and low < raidLowExtreme[1]
+nextBarRaidLongSignal = raidFirstSide == -1 and raidHighSeen and bar_index == raidHighBar + 1 and not raidHighFractalReady and close > ibHigh and high > raidHighExtreme[1]
+fractalBosRaidShortSignal = raidFirstSide == 1 and raidLowSeen and raidLowFractalReady and close < raidLowFractal
+fractalBosRaidLongSignal = raidFirstSide == -1 and raidHighSeen and raidHighFractalReady and close > raidHighFractal
+raidLongSignal = inTrade and not tradeTaken and (directRaidLongSignal or nextBarRaidLongSignal or fractalBosRaidLongSignal)
+raidShortSignal = inTrade and not tradeTaken and (directRaidShortSignal or nextBarRaidShortSignal or fractalBosRaidShortSignal)
+raidLong = enableRaidLong and raidLongSignal and longAllowed
+raidShort = enableRaidShort and raidShortSignal and shortAllowed
+
+if raidShort
+    sl = raidHighExtreme
+    tp = close - (sl - close)
+    qty = positionQty(close, sl)
+    strategy.entry("IB Raid Short", strategy.short, qty=qty)
+    strategy.exit("IB Raid Short 1R", "IB Raid Short", stop=sl, limit=tp)
+    tradeTaken := true
+
+if raidLong
+    sl = raidLowExtreme
+    tp = close + (close - sl)
+    qty = positionQty(close, sl)
+    strategy.entry("IB Raid Long", strategy.long, qty=qty)
+    strategy.exit("IB Raid Long 1R", "IB Raid Long", stop=sl, limit=tp)
+    tradeTaken := true
+
 if longExtension
     sl = ibLow
     tp = close + (close - sl)
-    strategy.entry("IB Extension Long", strategy.long)
+    qty = positionQty(close, sl)
+    strategy.entry("IB Extension Long", strategy.long, qty=qty)
     strategy.exit("IB Extension Long 1R", "IB Extension Long", stop=sl, limit=tp)
     tradeTaken := true
 
 if shortExtension
     sl = ibHigh
     tp = close - (sl - close)
-    strategy.entry("IB Extension Short", strategy.short)
+    qty = positionQty(close, sl)
+    strategy.entry("IB Extension Short", strategy.short, qty=qty)
     strategy.exit("IB Extension Short 1R", "IB Extension Short", stop=sl, limit=tp)
     tradeTaken := true
 
@@ -224,6 +339,8 @@ plot(showMid and ibReady ? ibMid : na, "IB 0.5", color=color.new(color.gray, 0),
 plot((inIB or ibReady) ? ibLow : na, "IB Low", color=color.new(color.green, 0), linewidth=2, style=plot.style_linebr)
 plot(highBreakoutSeen and not tradeTaken ? highExtensionFractal : na, "Extension High Fractal", color=color.new(color.yellow, 0), linewidth=2, style=plot.style_linebr)
 plot(lowBreakoutSeen and not tradeTaken ? lowExtensionFractal : na, "Extension Low Fractal", color=color.new(color.orange, 0), linewidth=2, style=plot.style_linebr)
+plot(raidHighSeen and not tradeTaken ? raidHighFractal : na, "Raid High Fractal", color=color.new(color.yellow, 45), linewidth=1, style=plot.style_linebr)
+plot(raidLowSeen and not tradeTaken ? raidLowFractal : na, "Raid Low Fractal", color=color.new(color.orange, 45), linewidth=1, style=plot.style_linebr)
 plot(showEMA ? emaFast : na, "15m EMA 125", color=color.new(color.purple, 0), linewidth=2)
 plot(showEMA ? emaSlow : na, "15m EMA 200", color=color.new(color.fuchsia, 0), linewidth=2)
 
@@ -237,5 +354,7 @@ plotshape(highReturnToIB, title="High Return To IB", text="Ret", style=shape.dia
 plotshape(lowReturnToIB, title="Low Return To IB", text="Ret", style=shape.diamond, location=location.abovebar, color=color.new(color.orange, 0), textcolor=color.black, size=size.tiny)
 plotshape(longBosBeforeReturn, title="Skipped Long BoS Before Return", text="Skip", style=shape.xcross, location=location.abovebar, color=color.new(color.red, 0), textcolor=color.white, size=size.tiny)
 plotshape(shortBosBeforeReturn, title="Skipped Short BoS Before Return", text="Skip", style=shape.xcross, location=location.belowbar, color=color.new(color.red, 0), textcolor=color.white, size=size.tiny)
+plotshape(raidLong, title="Raid Long", text="Raid L", style=shape.labelup, location=location.belowbar, color=color.new(color.lime, 0), textcolor=color.black)
+plotshape(raidShort, title="Raid Short", text="Raid S", style=shape.labeldown, location=location.abovebar, color=color.new(color.maroon, 0), textcolor=color.white)
 plotshape(longExtension, title="Extension Long", text="Ext L", style=shape.labelup, location=location.belowbar, color=color.new(color.green, 0), textcolor=color.white)
 plotshape(shortExtension, title="Extension Short", text="Ext S", style=shape.labeldown, location=location.abovebar, color=color.new(color.red, 0), textcolor=color.white)
