@@ -9,8 +9,12 @@ timezoneInput = input.string("America/New_York", "Session timezone")
 fractalLeft = input.int(1, "Fractal left bars", minval=1, maxval=10)
 fractalRight = input.int(1, "Fractal right bars", minval=1, maxval=10)
 breakoutNeedsClose = input.bool(false, "Breakout must close beyond IB")
+emaTimeframe = input.timeframe("15", "EMA timeframe")
+emaFastLength = input.int(125, "Fast EMA length", minval=1, maxval=500)
+emaSlowLength = input.int(200, "Slow EMA length", minval=1, maxval=500)
 showBox = input.bool(true, "Show IB box")
 showMid = input.bool(true, "Show IB 0.5")
+showEMA = input.bool(true, "Show 15m EMAs")
 extendLevels = input.bool(true, "Extend levels right")
 
 tz = timezoneInput
@@ -22,6 +26,11 @@ inTrade = not na(time(timeframe.period, tradeSession, tz))
 newDay = ta.change(time("D", "0000-2359:1234567", tz)) != 0
 ibStarted = inIB and not inIB[1]
 ibFinished = not inIB and inIB[1]
+
+emaFast = request.security(syminfo.tickerid, emaTimeframe, ta.ema(close, emaFastLength), barmerge.gaps_off, barmerge.lookahead_off)
+emaSlow = request.security(syminfo.tickerid, emaTimeframe, ta.ema(close, emaSlowLength), barmerge.gaps_off, barmerge.lookahead_off)
+longAllowed = emaFast > emaSlow
+shortAllowed = emaFast < emaSlow
 
 var float ibHigh = na
 var float ibLow = na
@@ -38,6 +47,9 @@ var float highExtensionFractal = na
 var float lowExtensionFractal = na
 var bool highFractalReady = false
 var bool lowFractalReady = false
+var bool highReturnedToIB = false
+var bool lowReturnedToIB = false
+var bool extensionInvalidated = false
 
 var box ibBox = na
 var line ibHighLine = na
@@ -79,6 +91,9 @@ if newDay
     lowExtensionFractal := na
     highFractalReady := false
     lowFractalReady := false
+    highReturnedToIB := false
+    lowReturnedToIB := false
+    extensionInvalidated := false
     ibBox := na
     ibHighLine := na
     ibMidLine := na
@@ -103,6 +118,9 @@ if ibStarted
     lowExtensionFractal := na
     highFractalReady := false
     lowFractalReady := false
+    highReturnedToIB := false
+    lowReturnedToIB := false
+    extensionInvalidated := false
     ibBox := na
     ibHighLine := na
     ibMidLine := na
@@ -165,9 +183,28 @@ if newLowExtensionFractal
         line.delete(lowFractalLine)
     lowFractalLine := line.new(pivotBar, lowExtensionFractal, bar_index + 1, lowExtensionFractal, extend=extend.right, color=color.new(color.orange, 0), width=2)
 
-longExtension = highBreakoutSeen and highFractalReady and inTrade and not tradeTaken and close > highExtensionFractal
-shortExtension = lowBreakoutSeen and lowFractalReady and inTrade and not tradeTaken and close < lowExtensionFractal
+highReturnedBeforeBar = highReturnedToIB
+lowReturnedBeforeBar = lowReturnedToIB
 
+longBosBeforeReturn = highBreakoutSeen and highFractalReady and not highReturnedBeforeBar and inTrade and close > highExtensionFractal
+shortBosBeforeReturn = lowBreakoutSeen and lowFractalReady and not lowReturnedBeforeBar and inTrade and close < lowExtensionFractal
+
+if longBosBeforeReturn or shortBosBeforeReturn
+    extensionInvalidated := true
+
+longExtensionSignal = highBreakoutSeen and highFractalReady and highReturnedBeforeBar and not extensionInvalidated and inTrade and not tradeTaken and close > highExtensionFractal
+shortExtensionSignal = lowBreakoutSeen and lowFractalReady and lowReturnedBeforeBar and not extensionInvalidated and inTrade and not tradeTaken and close < lowExtensionFractal
+
+highReturnToIB = highBreakoutSeen and highFractalReady and not highReturnedToIB and not extensionInvalidated and low <= ibHigh
+lowReturnToIB = lowBreakoutSeen and lowFractalReady and not lowReturnedToIB and not extensionInvalidated and high >= ibLow
+
+if highReturnToIB
+    highReturnedToIB := true
+if lowReturnToIB
+    lowReturnedToIB := true
+
+longExtension = longExtensionSignal and longAllowed
+shortExtension = shortExtensionSignal and shortAllowed
 if longExtension
     sl = ibLow
     tp = close + (close - sl)
@@ -187,6 +224,8 @@ plot(showMid and ibReady ? ibMid : na, "IB 0.5", color=color.new(color.gray, 0),
 plot((inIB or ibReady) ? ibLow : na, "IB Low", color=color.new(color.green, 0), linewidth=2, style=plot.style_linebr)
 plot(highBreakoutSeen and not tradeTaken ? highExtensionFractal : na, "Extension High Fractal", color=color.new(color.yellow, 0), linewidth=2, style=plot.style_linebr)
 plot(lowBreakoutSeen and not tradeTaken ? lowExtensionFractal : na, "Extension Low Fractal", color=color.new(color.orange, 0), linewidth=2, style=plot.style_linebr)
+plot(showEMA ? emaFast : na, "15m EMA 125", color=color.new(color.purple, 0), linewidth=2)
+plot(showEMA ? emaSlow : na, "15m EMA 200", color=color.new(color.fuchsia, 0), linewidth=2)
 
 plotshape(ibStarted, title="IB Start", text="IB Start", style=shape.labelup, location=location.belowbar, color=color.new(color.blue, 0), textcolor=color.white, size=size.tiny)
 plotshape(ibFinished, title="IB Ready", text="IB Ready", style=shape.labeldown, location=location.abovebar, color=color.new(color.gray, 0), textcolor=color.white, size=size.tiny)
@@ -194,5 +233,9 @@ plotshape(highBreakout, title="High Breakout", text="H Break", style=shape.trian
 plotshape(lowBreakout, title="Low Breakout", text="L Break", style=shape.triangleup, location=location.belowbar, color=color.new(color.orange, 0), textcolor=color.black, size=size.tiny)
 plotshape(newHighExtensionFractal, title="High Fractal", text="Fr H", style=shape.circle, location=location.abovebar, color=color.new(color.yellow, 0), textcolor=color.black, size=size.tiny, offset=-fractalRight)
 plotshape(newLowExtensionFractal, title="Low Fractal", text="Fr L", style=shape.circle, location=location.belowbar, color=color.new(color.orange, 0), textcolor=color.black, size=size.tiny, offset=-fractalRight)
+plotshape(highReturnToIB, title="High Return To IB", text="Ret", style=shape.diamond, location=location.belowbar, color=color.new(color.yellow, 0), textcolor=color.black, size=size.tiny)
+plotshape(lowReturnToIB, title="Low Return To IB", text="Ret", style=shape.diamond, location=location.abovebar, color=color.new(color.orange, 0), textcolor=color.black, size=size.tiny)
+plotshape(longBosBeforeReturn, title="Skipped Long BoS Before Return", text="Skip", style=shape.xcross, location=location.abovebar, color=color.new(color.red, 0), textcolor=color.white, size=size.tiny)
+plotshape(shortBosBeforeReturn, title="Skipped Short BoS Before Return", text="Skip", style=shape.xcross, location=location.belowbar, color=color.new(color.red, 0), textcolor=color.white, size=size.tiny)
 plotshape(longExtension, title="Extension Long", text="Ext L", style=shape.labelup, location=location.belowbar, color=color.new(color.green, 0), textcolor=color.white)
 plotshape(shortExtension, title="Extension Short", text="Ext S", style=shape.labeldown, location=location.abovebar, color=color.new(color.red, 0), textcolor=color.white)
