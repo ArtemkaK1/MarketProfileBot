@@ -5,8 +5,16 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="2a9acabe-0260-48a1-8c25-01956489d627" name="Changes" comment="">
-      <change beforePath="$PROJECT_DIR$/.idea/MarketProfileBot.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/MarketProfileBot.iml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.env.example" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/market_profile_bot/app.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/market_profile_bot/app.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/market_profile_bot/config.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/market_profile_bot/config.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/market_profile_bot/risk.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/market_profile_bot/risk.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/test_models.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_models.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/test_mt5_executor.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_mt5_executor.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/test_risk.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_risk.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/test_trade_limiter.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_trade_limiter.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />

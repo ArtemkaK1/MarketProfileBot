@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from datetime import time
 from zoneinfo import ZoneInfo
 
 from market_profile_bot.config import Settings
@@ -12,7 +13,7 @@ def settings() -> Settings:
         mt5_login=None,
         mt5_password=None,
         mt5_server=None,
-        mt5_symbol="GER40",
+        mt5_symbol="NAS100",
         mt5_volume=0.1,
         mt5_deviation=20,
         mt5_magic=404011,
@@ -20,7 +21,11 @@ def settings() -> Settings:
         mt5_tp_points=None,
         dry_run=True,
         auto_trade=False,
-        timezone=ZoneInfo("Europe/Berlin"),
+        timezone=ZoneInfo("America/New_York"),
+        entry_cutoff=time(16, 0),
+        telegram_bot_token=None,
+        telegram_chat_id=None,
+        telegram_enabled=False,
     )
 
 

@@ -4,11 +4,15 @@ from datetime import datetime, time
 from zoneinfo import ZoneInfo
 
 
-XETRA_ENTRY_CUTOFF = time(17, 30)
+DEFAULT_ENTRY_CUTOFF = time(16, 0)
 
 
-def is_entry_allowed(alert_time: datetime, market_tz: ZoneInfo) -> bool:
+def is_entry_allowed(
+    alert_time: datetime,
+    market_tz: ZoneInfo,
+    entry_cutoff: time = DEFAULT_ENTRY_CUTOFF,
+) -> bool:
     market_time = alert_time.astimezone(market_tz)
     if market_time.weekday() >= 5:
         return False
-    return market_time.time() < XETRA_ENTRY_CUTOFF
+    return market_time.time() < entry_cutoff

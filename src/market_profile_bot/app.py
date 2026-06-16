@@ -9,6 +9,7 @@ from .dedupe import AlertDeduplicator
 from .models import AlertType, TradingViewAlert
 from .mt5_executor import MT5Executor
 from .risk import is_entry_allowed
+from .telegram import TelegramNotifier
 from .trade_limiter import DailyTradeLimiter
 
 logger = logging.getLogger(__name__)
@@ -20,6 +21,7 @@ def create_app() -> FastAPI:
     executor = MT5Executor(settings)
     dedupe = AlertDeduplicator()
     trade_limiter = DailyTradeLimiter()
+    notifier = TelegramNotifier.from_settings(settings)
 
     app = FastAPI(title="NASDAQ Pre-NYSE IB MT5 Bot")
 
@@ -39,6 +41,7 @@ def create_app() -> FastAPI:
         logger.info("Received alert %s %s %s", alert.type, alert.direction, alert.id)
 
         if alert.type == AlertType.IB_READY:
+            notifier.signal_received(alert)
             return {
                 "status": "ib_ready",
                 "ib_high": alert.ib_high,
@@ -46,16 +49,22 @@ def create_app() -> FastAPI:
                 "ib_mid": alert.ib_mid,
             }
 
-        if not is_entry_allowed(alert.time, settings.timezone):
-            return {"status": "rejected", "reason": "outside_xetra_entry_window"}
+        if not is_entry_allowed(alert.time, settings.timezone, settings.entry_cutoff):
+            reason = "outside_entry_window"
+            notifier.signal_rejected(alert, reason)
+            return {"status": "rejected", "reason": reason}
 
         if not settings.auto_trade:
+            notifier.signal_skipped(alert, "auto_trade_disabled")
             return {"status": "signal_received", "auto_trade": False, "id": alert.id}
 
         if not trade_limiter.reserve(alert.time, settings.timezone):
-            return {"status": "rejected", "reason": "daily_trade_limit_reached"}
+            reason = "daily_trade_limit_reached"
+            notifier.signal_rejected(alert, reason)
+            return {"status": "rejected", "reason": reason}
 
         result = executor.execute(alert)
+        notifier.execution_result(alert, result)
         return {"status": result.status, "detail": result.detail, "order_id": result.order_id}
 
     return app

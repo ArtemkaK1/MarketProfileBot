@@ -24,14 +24,14 @@ Current strategy defaults:
 ## Project Layout
 
 ```text
-tradingview/nasdaq_pre_nyse_ib_extension.pine  Pine strategy and alerts
-src/market_profile_bot/                         Python webhook and MT5 executor
-tests/                                          Unit tests for alert/risk logic
+tradingview/nasdaq_pre_nyse_ib_raid_extension.pine  Pine strategy and alerts
+src/market_profile_bot/                              Python webhook, Telegram notifier, and MT5 executor
+tests/                                               Unit tests for alert/risk logic
 ```
 
 ## TradingView Setup
 
-1. Open `tradingview/nasdaq_pre_nyse_ib_extension.pine` in TradingView Pine Editor.
+1. Open `tradingview/nasdaq_pre_nyse_ib_raid_extension.pine` in TradingView Pine Editor.
 2. Add it to a 5m NASDAQ chart.
 3. Create an alert with condition: **Any alert() function call**.
 4. Set webhook URL to your bot endpoint, for example:
@@ -64,6 +64,11 @@ MT5_DEVIATION=20
 MT5_MAGIC=404011
 DRY_RUN=true
 AUTO_TRADE=false
+MARKET_TIMEZONE=America/New_York
+ENTRY_CUTOFF=16:00
+TELEGRAM_ENABLED=false
+TELEGRAM_BOT_TOKEN=
+TELEGRAM_CHAT_ID=
 ```
 
 Run locally:
@@ -105,6 +110,7 @@ Example `RAID` alert:
 - The Python bot defaults to `DRY_RUN=true` and `AUTO_TRADE=false`.
 - Duplicate alert IDs are ignored during the process lifetime.
 - Only one auto-traded signal is accepted per market day.
-- Update the Python service timezone/session cutoff before live NASDAQ auto-trading if your server-side cutoff must match the New York cash session close.
+- The server-side entry cutoff defaults to `16:00` in `America/New_York`.
 - Trade alerts must include `sl` and `tp`.
 - Live MT5 volume is calculated from `risk_percent`, account equity, stop distance, and broker tick value.
+- Telegram notifications are disabled unless `TELEGRAM_ENABLED=true`, `TELEGRAM_BOT_TOKEN`, and `TELEGRAM_CHAT_ID` are configured.

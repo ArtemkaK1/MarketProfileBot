@@ -11,7 +11,7 @@ def valid_payload(**overrides):
         "secret": "secret",
         "id": "id-1",
         "type": "RAID",
-        "symbol": "GER40",
+        "symbol": "NAS100",
         "time": datetime.fromisoformat("2026-06-10T12:00:00+02:00"),
         "direction": "SHORT",
         "price": 18425.5,
