@@ -24,8 +24,8 @@ showEMA = input.bool(true, "Show 15m EMAs")
 extendLevels = input.bool(true, "Extend levels right")
 
 tz = timezoneInput
-ibSession = ibSessionInput + ":12345"
-tradeSession = tradeSessionInput + ":12345"
+ibSession = ibSessionInput + ":23456"
+tradeSession = tradeSessionInput + ":23456"
 
 inIB = not na(time(timeframe.period, ibSession, tz))
 inTrade = not na(time(timeframe.period, tradeSession, tz))
