@@ -7,6 +7,12 @@ from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 
+BINGX_BASE_URL = "https://open-api.bingx.com"
+BINGX_SIZE_FIELD = "quantity"
+BINGX_ORDER_ENDPOINT = "/openApi/swap/v2/trade/order"
+BINGX_RECV_WINDOW = 5000
+BINGX_ENABLE_SL_TP = True
+
 
 def _bool_env(name: str, default: bool) -> bool:
     value = os.getenv(name)
@@ -40,17 +46,12 @@ def _time_env(name: str, default: time) -> time:
 @dataclass(frozen=True)
 class Settings:
     webhook_secret: str
-    ctrader_host_type: str
-    ctrader_client_id: str | None
-    ctrader_client_secret: str | None
-    ctrader_redirect_uri: str | None
-    ctrader_access_token: str | None
-    ctrader_refresh_token: str | None
-    ctrader_account_id: int | None
-    ctrader_symbol_id: int | None
-    ctrader_symbol_name: str
-    ctrader_volume: int
-    ctrader_slippage_points: int
+    bingx_api_key: str | None
+    bingx_secret_key: str | None
+    bingx_symbol: str
+    bingx_initial_capital: float
+    bingx_risk_percent: float
+    bingx_min_usdt_step: float
     dry_run: bool
     auto_trade: bool
     timezone: ZoneInfo
@@ -62,21 +63,14 @@ class Settings:
     @classmethod
     def from_env(cls) -> "Settings":
         load_dotenv()
-        account_id = os.getenv("CTRADER_ACCOUNT_ID")
-        symbol_id = os.getenv("CTRADER_SYMBOL_ID")
         return cls(
             webhook_secret=os.getenv("WEBHOOK_SECRET", ""),
-            ctrader_host_type=os.getenv("CTRADER_HOST_TYPE", "demo").strip().lower(),
-            ctrader_client_id=os.getenv("CTRADER_CLIENT_ID"),
-            ctrader_client_secret=os.getenv("CTRADER_CLIENT_SECRET"),
-            ctrader_redirect_uri=os.getenv("CTRADER_REDIRECT_URI"),
-            ctrader_access_token=os.getenv("CTRADER_ACCESS_TOKEN"),
-            ctrader_refresh_token=os.getenv("CTRADER_REFRESH_TOKEN"),
-            ctrader_account_id=int(account_id) if account_id else None,
-            ctrader_symbol_id=int(symbol_id) if symbol_id else None,
-            ctrader_symbol_name=os.getenv("CTRADER_SYMBOL_NAME", "NAS100"),
-            ctrader_volume=_int_env("CTRADER_VOLUME", 1000),
-            ctrader_slippage_points=_int_env("CTRADER_SLIPPAGE_POINTS", 20),
+            bingx_api_key=os.getenv("BINGX_API_KEY"),
+            bingx_secret_key=os.getenv("BINGX_SECRET_KEY"),
+            bingx_symbol=os.getenv("BINGX_SYMBOL", "NASDAQ100-USDT"),
+            bingx_initial_capital=float(os.getenv("BINGX_INITIAL_CAPITAL", "100")),
+            bingx_risk_percent=float(os.getenv("BINGX_RISK_PERCENT", "5.0")),
+            bingx_min_usdt_step=float(os.getenv("BINGX_MIN_USDT_STEP", "0.01")),
             dry_run=_bool_env("DRY_RUN", True),
             auto_trade=_bool_env("AUTO_TRADE", False),
             timezone=ZoneInfo(os.getenv("MARKET_TIMEZONE", "America/New_York")),

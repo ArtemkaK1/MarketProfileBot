@@ -3,7 +3,7 @@
 Starter project for a two-part NASDAQ trading workflow:
 
 1. TradingView Pine Script calculates the Initial Balance from 08:00-09:30 New York time by default and currently backtests extension/raid entries.
-2. Python FastAPI webhook receives TradingView JSON alerts, sends Telegram notifications, and opens cTrader positions through cTrader Open API.
+2. Python FastAPI webhook receives TradingView JSON alerts, sends Telegram notifications, and opens BingX positions.
 
 Current strategy defaults:
 
@@ -25,7 +25,7 @@ Current strategy defaults:
 
 ```text
 tradingview/nasdaq_pre_nyse_ib_raid_extension.pine  Pine strategy and alerts
-src/market_profile_bot/                              Python webhook, Telegram notifier, and cTrader executor
+src/market_profile_bot/                              Python webhook, Telegram notifier, and BingX executor
 tests/                                               Unit tests for alert/risk logic
 ```
 
@@ -60,17 +60,12 @@ Create a local `.env` file:
 ```bash
 WEBHOOK_SECRET=change-me
 
-CTRADER_HOST_TYPE=demo
-CTRADER_CLIENT_ID=
-CTRADER_CLIENT_SECRET=
-CTRADER_REDIRECT_URI=http://127.0.0.1:8000/ctrader/callback
-CTRADER_ACCESS_TOKEN=
-CTRADER_REFRESH_TOKEN=
-CTRADER_ACCOUNT_ID=
-CTRADER_SYMBOL_ID=
-CTRADER_SYMBOL_NAME=NAS100
-CTRADER_VOLUME=1000
-CTRADER_SLIPPAGE_POINTS=20
+BINGX_API_KEY=
+BINGX_SECRET_KEY=
+BINGX_SYMBOL=NASDAQ100-USDT
+BINGX_INITIAL_CAPITAL=100
+BINGX_RISK_PERCENT=5.0
+BINGX_MIN_USDT_STEP=0.01
 
 DRY_RUN=true
 AUTO_TRADE=false
@@ -87,55 +82,41 @@ Run locally:
 uvicorn market_profile_bot.app:create_app --factory --host 0.0.0.0 --port 8000
 ```
 
-Use `DRY_RUN=true` until you have verified payloads, symbol name, cTrader volume, and broker execution.
+Use `DRY_RUN=true` until you have verified payloads, symbol name, calculated USDT size, and broker execution.
 
-## cTrader Setup
+## BingX Setup
 
-1. Create an application in the cTrader Open API portal.
-2. Add your redirect URI. For local setup use:
-
-```text
-http://127.0.0.1:8000/ctrader/callback
-```
-
-3. Fill `.env`:
+Create a BingX API key with trading permission and fill:
 
 ```env
-CTRADER_CLIENT_ID=
-CTRADER_CLIENT_SECRET=
-CTRADER_REDIRECT_URI=http://127.0.0.1:8000/ctrader/callback
+BINGX_API_KEY=
+BINGX_SECRET_KEY=
+BINGX_SYMBOL=NASDAQ100-USDT
+BINGX_INITIAL_CAPITAL=100
+BINGX_RISK_PERCENT=5.0
+BINGX_MIN_USDT_STEP=0.01
 ```
 
-4. Start the bot.
-5. Open:
+Confirm the exact TradFi NASDAQ100 API symbol in BingX. If the real symbol differs, update `BINGX_SYMBOL`.
+
+The bot assumes BingX order size is USDT notional. It calculates size from the TradingView alert entry price and SL:
 
 ```text
-http://127.0.0.1:8000/ctrader/auth-url
+risk_amount = BINGX_INITIAL_CAPITAL * BINGX_RISK_PERCENT / 100
+raw_usdt_size = risk_amount * entry_price / abs(entry_price - stop_loss)
+usdt_size = raw_usdt_size rounded up to BINGX_MIN_USDT_STEP
 ```
 
-6. Open the returned `auth_url`, approve trading access, and let cTrader redirect to `/ctrader/callback`.
-7. Copy `CTRADER_ACCESS_TOKEN` and `CTRADER_REFRESH_TOKEN` from the response into `.env`.
-8. Restart the bot, then open:
+Rounding is upward, so actual risk is as close as possible to the target but not below it. Example: with `100` capital, `5%` risk, `20000` entry, and `19800` SL:
 
 ```text
-http://127.0.0.1:8000/ctrader/accounts
+risk_amount = 5
+stop_distance = 200
+raw_usdt_size = 5 * 20000 / 200 = 500
+usdt_size = 500
 ```
 
-9. Copy `ctidTraderAccountId` into `CTRADER_ACCOUNT_ID`, restart the bot, then search symbols:
-
-```text
-http://127.0.0.1:8000/ctrader/symbols?q=NAS
-```
-
-10. Copy the correct `symbolId` into `CTRADER_SYMBOL_ID` and fill the volume:
-
-```env
-CTRADER_ACCOUNT_ID=
-CTRADER_SYMBOL_ID=
-CTRADER_VOLUME=
-```
-
-Use a demo account first. `CTRADER_VOLUME` uses cTrader Open API volume units, not the position-size labels shown in every trading platform UI.
+The BingX REST base URL, order endpoint, request size field, receive window, and SL/TP request shape are code defaults because they are implementation details, not deployment settings.
 
 ## Mac/Linux VPS Launch
 
@@ -188,7 +169,7 @@ Use HTTPS before live trading if possible.
 
 ## Docker Setup
 
-The Docker image runs the FastAPI webhook service, Telegram notifications, and cTrader Open API execution.
+The Docker image runs the FastAPI webhook service, Telegram notifications, and BingX execution.
 
 Build and run:
 
@@ -208,7 +189,7 @@ Stop:
 docker compose down
 ```
 
-`docker-compose.yml` reads `.env`, so `DRY_RUN` and `AUTO_TRADE` are controlled there. Keep `DRY_RUN=true` until the webhook, Telegram, cTrader symbol, and demo execution are verified.
+`docker-compose.yml` reads `.env`, so `DRY_RUN` and `AUTO_TRADE` are controlled there. Keep `DRY_RUN=true` until the webhook, Telegram, BingX symbol, and demo execution are verified.
 
 ## Webhook Payloads
 
@@ -243,5 +224,5 @@ Example `RAID` alert:
 - Only one auto-traded signal is accepted per market day.
 - The server-side entry cutoff defaults to `16:00` in `America/New_York`.
 - Trade alerts must include `sl` and `tp`.
-- cTrader execution requires `CTRADER_ACCESS_TOKEN`, `CTRADER_ACCOUNT_ID`, `CTRADER_SYMBOL_ID`, and `CTRADER_VOLUME`.
+- BingX execution requires `BINGX_API_KEY`, `BINGX_SECRET_KEY`, `BINGX_SYMBOL`, `BINGX_INITIAL_CAPITAL`, `BINGX_RISK_PERCENT`, and `BINGX_MIN_USDT_STEP`.
 - Telegram notifications are disabled unless `TELEGRAM_ENABLED=true`, `TELEGRAM_BOT_TOKEN`, and `TELEGRAM_CHAT_ID` are configured.

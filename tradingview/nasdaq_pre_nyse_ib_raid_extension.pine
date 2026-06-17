@@ -262,9 +262,9 @@ if raidLowBreakout
     raidLowBar := bar_index
     raidLowExtreme := low
 
-if raidHighSeen and (raidFirstSide != 1 or not raidLowSeen) and high > ibHigh
+if raidHighSeen and not tradeTaken and high > ibHigh
     raidHighExtreme := na(raidHighExtreme) ? high : math.max(raidHighExtreme, high)
-if raidLowSeen and (raidFirstSide != -1 or not raidHighSeen) and low < ibLow
+if raidLowSeen and not tradeTaken and low < ibLow
     raidLowExtreme := na(raidLowExtreme) ? low : math.min(raidLowExtreme, low)
 
 if raidFirstSide == 1 and raidHighSeen and not raidHighReturnedToIB and low <= ibHigh

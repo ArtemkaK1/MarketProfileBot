@@ -1,1 +1,1 @@
-"""NASDAQ Pre-NYSE IB webhook and cTrader execution package."""
+"""NASDAQ Pre-NYSE IB webhook and BingX execution package."""

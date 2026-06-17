@@ -4,13 +4,8 @@ import logging
 
 from fastapi import FastAPI, HTTPException
 
+from .bingx_executor import BingXExecutor
 from .config import Settings
-from .ctrader_executor import (
-    CTraderExecutor,
-    ctrader_auth_url,
-    exchange_authorization_code,
-    refresh_access_token,
-)
 from .dedupe import AlertDeduplicator
 from .models import AlertType, TradingViewAlert
 from .risk import is_entry_allowed
@@ -23,72 +18,21 @@ logger = logging.getLogger(__name__)
 def create_app() -> FastAPI:
     logging.basicConfig(level=logging.INFO)
     settings = Settings.from_env()
-    executor = CTraderExecutor(settings)
+    executor = BingXExecutor(settings)
     dedupe = AlertDeduplicator()
     trade_limiter = DailyTradeLimiter()
     notifier = TelegramNotifier.from_settings(settings)
 
-    app = FastAPI(title="NASDAQ Pre-NYSE IB cTrader Bot")
+    app = FastAPI(title="NASDAQ Pre-NYSE IB BingX Bot")
 
     @app.get("/health")
     def health():
         return {
             "status": "ok",
-            "backend": "ctrader",
+            "backend": "bingx",
             "dry_run": settings.dry_run,
             "auto_trade": settings.auto_trade,
         }
-
-    @app.get("/ctrader/auth-url")
-    def get_ctrader_auth_url():
-        try:
-            return {"auth_url": ctrader_auth_url(settings)}
-        except Exception as exc:
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-    @app.get("/ctrader/callback")
-    def ctrader_callback(code: str):
-        try:
-            token = exchange_authorization_code(settings, code)
-            return {
-                "status": "ok",
-                "save_to_env": {
-                    "CTRADER_ACCESS_TOKEN": token.get("accessToken"),
-                    "CTRADER_REFRESH_TOKEN": token.get("refreshToken"),
-                },
-                "raw": token,
-            }
-        except Exception as exc:
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-    @app.post("/ctrader/refresh-token")
-    def refresh_ctrader_token():
-        try:
-            token = refresh_access_token(settings)
-            return {
-                "status": "ok",
-                "save_to_env": {
-                    "CTRADER_ACCESS_TOKEN": token.get("accessToken"),
-                    "CTRADER_REFRESH_TOKEN": token.get("refreshToken"),
-                },
-                "raw": token,
-            }
-        except Exception as exc:
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-    @app.get("/ctrader/accounts")
-    def get_ctrader_accounts():
-        try:
-            return {"accounts": executor.list_accounts()}
-        except Exception as exc:
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-    @app.get("/ctrader/symbols")
-    def get_ctrader_symbols(q: str | None = None):
-        try:
-            return {"symbols": executor.list_symbols(q)}
-        except Exception as exc:
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     @app.post("/webhook/tradingview")
     def tradingview_webhook(alert: TradingViewAlert):
