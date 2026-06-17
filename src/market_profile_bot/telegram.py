@@ -6,8 +6,8 @@ from dataclasses import dataclass
 from urllib import parse, request
 
 from .config import Settings
+from .execution import ExecutionResult
 from .models import AlertType, Direction, TradingViewAlert
-from .mt5_executor import ExecutionResult
 
 logger = logging.getLogger(__name__)
 
