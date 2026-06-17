@@ -56,3 +56,13 @@ def test_format_ib_ready_message_contains_ib_levels():
     assert "IB High: 18950.0" in message
     assert "IB Low: 18850.0" in message
     assert "IB 0.5: 18900.0" in message
+
+
+def test_bot_started_message_contains_runtime_flags(monkeypatch):
+    sent = []
+    notifier = TelegramNotifier(bot_token="token", chat_id="chat", enabled=True)
+    monkeypatch.setattr(TelegramNotifier, "send", lambda _self, text: sent.append(text))
+
+    notifier.bot_started(backend="bingx", dry_run=True, auto_trade=False)
+
+    assert sent == ["Bot is active\nBackend: bingx\nDRY_RUN: True\nAUTO_TRADE: False"]

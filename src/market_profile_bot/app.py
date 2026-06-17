@@ -25,6 +25,14 @@ def create_app() -> FastAPI:
 
     app = FastAPI(title="NASDAQ Pre-NYSE IB BingX Bot")
 
+    @app.on_event("startup")
+    def notify_startup():
+        notifier.bot_started(
+            backend="bingx",
+            dry_run=settings.dry_run,
+            auto_trade=settings.auto_trade,
+        )
+
     @app.get("/health")
     def health():
         return {

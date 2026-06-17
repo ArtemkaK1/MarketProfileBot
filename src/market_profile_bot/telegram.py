@@ -56,6 +56,14 @@ class TelegramNotifier:
     def signal_received(self, alert: TradingViewAlert) -> None:
         self.send(format_signal_message(alert))
 
+    def bot_started(self, *, backend: str, dry_run: bool, auto_trade: bool) -> None:
+        self.send(
+            "Bot is active\n"
+            f"Backend: {backend}\n"
+            f"DRY_RUN: {dry_run}\n"
+            f"AUTO_TRADE: {auto_trade}"
+        )
+
     def signal_rejected(self, alert: TradingViewAlert, reason: str) -> None:
         self.send(f"{format_signal_message(alert)}\nStatus: rejected\nReason: {reason}")
 
