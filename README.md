@@ -191,6 +191,44 @@ docker compose down
 
 `docker-compose.yml` reads `.env`, so `DRY_RUN` and `AUTO_TRADE` are controlled there. Keep `DRY_RUN=true` until the webhook, Telegram, BingX symbol, and demo execution are verified.
 
+## Render Deploy
+
+1. Push this repository to GitHub.
+2. In Render, create a new **Web Service** from the repository.
+3. Select Docker deployment. Render will use `Dockerfile`; `render.yaml` is also included for blueprint-based deployment.
+4. Set these environment variables in Render:
+
+```env
+WEBHOOK_SECRET=
+BINGX_API_KEY=
+BINGX_SECRET_KEY=
+BINGX_SYMBOL=NASDAQ100-USDT
+BINGX_INITIAL_CAPITAL=100
+BINGX_RISK_PERCENT=5.0
+BINGX_MIN_USDT_STEP=0.01
+DRY_RUN=true
+AUTO_TRADE=false
+MARKET_TIMEZONE=America/New_York
+ENTRY_CUTOFF=16:00
+TELEGRAM_ENABLED=true
+TELEGRAM_BOT_TOKEN=
+TELEGRAM_CHAT_ID=
+```
+
+5. Deploy, then check:
+
+```text
+https://YOUR-RENDER-SERVICE.onrender.com/health
+```
+
+TradingView webhook URL:
+
+```text
+https://YOUR-RENDER-SERVICE.onrender.com/webhook/tradingview
+```
+
+Keep `DRY_RUN=true` and `AUTO_TRADE=false` for the first alert test. When Telegram receives the signal and `/health` is stable, switch `AUTO_TRADE=true` while keeping `DRY_RUN=true`. Only switch `DRY_RUN=false` after a small live test is acceptable.
+
 ## Webhook Payloads
 
 Example `RAID` alert:
