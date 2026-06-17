@@ -52,6 +52,8 @@ Install dependencies:
 .venv/bin/python -m pip install -r requirements.txt
 ```
 
+The official Python `MetaTrader5` package is Windows-only. Install and run the live MT5 bot on a Windows machine/VPS with the MT5 terminal available.
+
 Create a local `.env` file:
 
 ```bash
@@ -74,10 +76,36 @@ TELEGRAM_CHAT_ID=
 Run locally:
 
 ```bash
-.venv/bin/uvicorn market_profile_bot.app:create_app --factory --host 0.0.0.0 --port 8000
+PYTHONPATH=src .venv/bin/uvicorn market_profile_bot.app:create_app --factory --host 0.0.0.0 --port 8000
 ```
 
 Use `DRY_RUN=true` until you have verified payloads, symbol name, lot size, and broker execution.
+
+## Docker Setup
+
+The Dockerfile uses a Windows container image because the official `MetaTrader5` Python package is Windows-only. On your Windows VPS, switch Docker to **Windows containers** before building.
+
+The MT5 Python bridge needs access to a local MT5 terminal in the same Windows environment. If live order execution does not see the terminal from inside the container, run the Python bot directly on the Windows VPS instead of Docker.
+
+Build and run:
+
+```bash
+docker compose up --build
+```
+
+Check health:
+
+```bash
+curl http://127.0.0.1:8000/health
+```
+
+Stop:
+
+```bash
+docker compose down
+```
+
+`docker-compose.yml` reads `.env`, so `DRY_RUN` and `AUTO_TRADE` are controlled there. Keep `DRY_RUN=true` until the webhook, Telegram, MT5 symbol, and demo execution are verified.
 
 ## Webhook Payloads
 

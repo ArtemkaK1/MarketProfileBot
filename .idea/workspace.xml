@@ -5,16 +5,9 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="2a9acabe-0260-48a1-8c25-01956489d627" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/.env.example" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/market_profile_bot/app.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/market_profile_bot/app.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/market_profile_bot/config.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/market_profile_bot/config.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/market_profile_bot/risk.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/market_profile_bot/risk.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/test_models.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_models.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/test_mt5_executor.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_mt5_executor.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/test_risk.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_risk.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/test_trade_limiter.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_trade_limiter.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/requirements.txt" beforeDir="false" afterPath="$PROJECT_DIR$/requirements.txt" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -24,21 +17,21 @@
   <component name="Git.Settings">
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
-  <component name="ProjectColorInfo"><![CDATA[{
-  "associatedIndex": 2
-}]]></component>
+  <component name="ProjectColorInfo">{
+  &quot;associatedIndex&quot;: 2
+}</component>
   <component name="ProjectId" id="3EqnzPS6t8dP3TI0gVk9prLe6QD" />
   <component name="ProjectLevelVcsManager" settingsEditedManually="true" />
   <component name="ProjectViewState">
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "git-widget-placeholder": "main"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;main&quot;
   }
-}]]></component>
+}</component>
   <component name="SharedIndexes">
     <attachedChunks>
       <set>

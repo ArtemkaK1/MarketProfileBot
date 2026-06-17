@@ -1,0 +1,11 @@
+services:
+  market-profile-bot:
+    image: market-profile-bot:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
