@@ -23,6 +23,10 @@ Current strategy defaults:
 - IB extension: one IB border breakout/raid, confirmed fractal beyond that border, then close beyond the fractal. SL is the opposite IB border.
 - IB raid: one IB border raid establishes the first-side manipulation and the opposite trade direction. A raid returns only when a candle closes back inside the IB. Re-raids can repeat on either side before entry. A first-side re-raid replaces the SL reference with the latest manipulation extreme and restarts the opposite-side setup; an opposite-side re-raid restarts its same-candle, next-candle, and fractal confirmation sequence. Raid SL defaults to one tick beyond the latest manipulation. Entry occurs by same-candle close beyond the opposite border, next-candle continuation beyond that raid's extreme when no fractal forms, or BoS through the current opposite-side raid fractal. Bars crossing both IB borders are marked ambiguous and do not establish a raid order because 5m OHLC cannot reveal which side crossed first.
 
+## MetaTrader 5
+
+An MT5 Expert Advisor port is available at `mql5/NasdaqPreNyseIBRaidExtension.mq5`. Installation, broker-time configuration, backtesting, and demo/live validation instructions are in `mql5/MT5_SETUP.md`.
+
 ## Project Layout
 
 ```text
