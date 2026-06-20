@@ -12,6 +12,8 @@ Current strategy defaults:
 - IB: 08:00-09:30 America/New_York.
 - Trade session: 09:30-16:00 America/New_York.
 - One position per day.
+- Backtest market orders are processed on the confirmed signal-bar close, matching the price used for SL, TP, sizing, and webhook alerts.
+- Long entries are enabled by default. Short entries remain available but default to disabled after producing negative expectancy over the full-history backtest.
 - Risk per position: 1% of account equity.
 - Reward:risk: 1:1.
 - 15m EMA filter:
@@ -19,7 +21,7 @@ Current strategy defaults:
   - EMA125 below EMA200: only short entries are allowed.
   - Blocked opposite-direction setups are discarded, so the strategy keeps looking for an allowed direction until the day ends.
 - IB extension: one IB border breakout/raid, confirmed fractal beyond that border, then close beyond the fractal. SL is the opposite IB border.
-- IB raid: one IB border raid, with same-side re-raids allowed before the opposite border. After return to IB, the opposite border raid can enter by same-candle close beyond that border, next-candle continuation when no fractal forms, or BoS through the opposite-side raid fractal.
+- IB raid: one IB border raid establishes the first-side manipulation and the opposite trade direction. A raid returns only when a candle closes back inside the IB. Re-raids can repeat on either side before entry. A first-side re-raid replaces the SL reference with the latest manipulation extreme and restarts the opposite-side setup; an opposite-side re-raid restarts its same-candle, next-candle, and fractal confirmation sequence. Raid SL defaults to one tick beyond the latest manipulation. Entry occurs by same-candle close beyond the opposite border, next-candle continuation beyond that raid's extreme when no fractal forms, or BoS through the current opposite-side raid fractal. Bars crossing both IB borders are marked ambiguous and do not establish a raid order because 5m OHLC cannot reveal which side crossed first.
 
 ## Project Layout
 

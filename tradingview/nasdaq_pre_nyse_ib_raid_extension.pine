@@ -1,5 +1,5 @@
 //@version=5
-strategy("NASDAQ Pre-NYSE IB Extension/Raid", overlay=true, initial_capital=100000, currency=currency.USD, max_boxes_count=100, max_lines_count=300, max_labels_count=100)
+strategy("NASDAQ Pre-NYSE IB Extension/Raid", overlay=true, initial_capital=100000, currency=currency.USD, process_orders_on_close=true, max_boxes_count=100, max_lines_count=300, max_labels_count=100)
 
 // Draw the pre-NYSE Initial Balance and trade extension/raid entries.
 
@@ -10,13 +10,14 @@ fractalLeft = input.int(1, "Fractal left bars", minval=1, maxval=10)
 fractalRight = input.int(1, "Fractal right bars", minval=1, maxval=10)
 breakoutNeedsClose = input.bool(false, "Breakout must close beyond IB")
 enableExtensionLong = input.bool(true, "Enable extension long entries")
-enableExtensionShort = input.bool(true, "Enable extension short entries")
+enableExtensionShort = input.bool(false, "Enable extension short entries")
 enableRaidLong = input.bool(true, "Enable raid long entries")
-enableRaidShort = input.bool(true, "Enable raid short entries")
+enableRaidShort = input.bool(false, "Enable raid short entries")
 webhookSecret = input.string("", "Webhook secret")
 sendIBReadyAlert = input.bool(true, "Send IB ready alert")
 riskCapital = input.float(100000.0, "Risk capital, USD", minval=1.0)
 riskPercent = input.float(1.0, "Risk per trade, %", minval=0.1, maxval=100.0, step=0.1)
+raidStopBufferTicks = input.int(1, "Raid SL buffer, ticks", minval=0, maxval=100)
 emaTimeframe = input.timeframe("15", "EMA timeframe")
 emaFastLength = input.int(125, "Fast EMA length", minval=1, maxval=500)
 emaSlowLength = input.int(200, "Slow EMA length", minval=1, maxval=500)
@@ -31,6 +32,7 @@ tradeSession = tradeSessionInput + ":23456"
 
 inIB = not na(time(timeframe.period, ibSession, tz))
 inTrade = not na(time(timeframe.period, tradeSession, tz))
+flat = strategy.position_size == 0
 newDay = ta.change(time("D", "0000-2359:1234567", tz)) != 0
 ibStarted = inIB and not inIB[1]
 ibFinished = not inIB and inIB[1]
@@ -106,6 +108,8 @@ var bool raidHighFractalReady = false
 var bool raidLowFractalReady = false
 var bool raidHighReturnedToIB = false
 var bool raidLowReturnedToIB = false
+var int raidHighCount = 0
+var int raidLowCount = 0
 
 var box ibBox = na
 var line ibHighLine = na
@@ -163,6 +167,8 @@ if newDay
     raidLowFractalReady := false
     raidHighReturnedToIB := false
     raidLowReturnedToIB := false
+    raidHighCount := 0
+    raidLowCount := 0
     ibBox := na
     ibHighLine := na
     ibMidLine := na
@@ -203,6 +209,8 @@ if ibStarted
     raidLowFractalReady := false
     raidHighReturnedToIB := false
     raidLowReturnedToIB := false
+    raidHighCount := 0
+    raidLowCount := 0
     ibBox := na
     ibHighLine := na
     ibMidLine := na
@@ -236,8 +244,8 @@ if ibFinished and not na(ibHigh) and not na(ibLow)
     if sendIBReadyAlert and webhookSecret != ""
         alert(jsonPayload("IB_READY", "NONE", close, ibHigh, ibLow, ibMid, na, na), alert.freq_once_per_bar_close)
 
-highBreakout = ibReady and inTrade and not tradeTaken and not highBreakoutSeen and not lowBreakoutSeen and (breakoutNeedsClose ? close > ibHigh : high > ibHigh)
-lowBreakout = ibReady and inTrade and not tradeTaken and not highBreakoutSeen and not lowBreakoutSeen and not highBreakout and (breakoutNeedsClose ? close < ibLow : low < ibLow)
+highBreakout = ibReady and inTrade and flat and not tradeTaken and not highBreakoutSeen and not lowBreakoutSeen and (breakoutNeedsClose ? close > ibHigh : high > ibHigh)
+lowBreakout = ibReady and inTrade and flat and not tradeTaken and not highBreakoutSeen and not lowBreakoutSeen and not highBreakout and (breakoutNeedsClose ? close < ibLow : low < ibLow)
 
 if highBreakout
     highBreakoutSeen := true
@@ -246,30 +254,65 @@ if lowBreakout
     lowBreakoutSeen := true
     lowBreakoutBar := bar_index
 
-canRaidHighBreakout = raidFirstSide == 0 or (raidFirstSide == -1 and raidLowReturnedToIB)
-canRaidLowBreakout = raidFirstSide == 0 or (raidFirstSide == 1 and raidHighReturnedToIB)
-raidHighBreakout = ibReady and inTrade and not tradeTaken and canRaidHighBreakout and not raidHighSeen and (breakoutNeedsClose ? close > ibHigh : high > ibHigh)
-raidLowBreakout = ibReady and inTrade and not tradeTaken and canRaidLowBreakout and not raidLowSeen and not raidHighBreakout and (breakoutNeedsClose ? close < ibLow : low < ibLow)
+raidHighBeyondIB = breakoutNeedsClose ? close > ibHigh : high > ibHigh
+raidLowBeyondIB = breakoutNeedsClose ? close < ibLow : low < ibLow
+raidAmbiguousBar = ibReady and inTrade and flat and not tradeTaken and raidHighBeyondIB and raidLowBeyondIB
+raidHighNextWindow = raidFirstSide == -1 and raidHighSeen and bar_index == raidHighBar + 1 and not raidHighFractalReady
+raidLowNextWindow = raidFirstSide == 1 and raidLowSeen and bar_index == raidLowBar + 1 and not raidLowFractalReady
+nextBarRaidLongSignal = not raidAmbiguousBar and raidHighNextWindow and close > ibHigh and high > raidHighExtreme
+nextBarRaidShortSignal = not raidAmbiguousBar and raidLowNextWindow and close < ibLow and low < raidLowExtreme
+// A completed return makes that side eligible for another independent raid cycle.
+canStartRaidHigh = raidFirstSide == 0 or (raidHighSeen ? raidHighReturnedToIB : raidFirstSide == -1 and raidLowReturnedToIB)
+canStartRaidLow = raidFirstSide == 0 or (raidLowSeen ? raidLowReturnedToIB : raidFirstSide == 1 and raidHighReturnedToIB)
+raidHighBreakout = ibReady and inTrade and flat and not tradeTaken and not raidAmbiguousBar and not raidHighNextWindow and canStartRaidHigh and raidHighBeyondIB
+raidLowBreakout = ibReady and inTrade and flat and not tradeTaken and not raidAmbiguousBar and not raidLowNextWindow and canStartRaidLow and raidLowBeyondIB
 
 if raidHighBreakout
+    highIsFirstSideReraid = raidFirstSide == 1
     raidHighSeen := true
     raidFirstSide := raidFirstSide == 0 ? 1 : raidFirstSide
     raidHighBar := bar_index
     raidHighExtreme := high
+    raidHighCount += 1
+    raidHighFractal := na
+    raidHighFractalReady := false
+    raidHighReturnedToIB := false
+    if highIsFirstSideReraid
+        raidLowSeen := false
+        raidLowBar := na
+        raidLowExtreme := na
+        raidLowFractal := na
+        raidLowFractalReady := false
+        raidLowReturnedToIB := false
 if raidLowBreakout
+    lowIsFirstSideReraid = raidFirstSide == -1
     raidLowSeen := true
     raidFirstSide := raidFirstSide == 0 ? -1 : raidFirstSide
     raidLowBar := bar_index
     raidLowExtreme := low
+    raidLowCount += 1
+    raidLowFractal := na
+    raidLowFractalReady := false
+    raidLowReturnedToIB := false
+    if lowIsFirstSideReraid
+        raidHighSeen := false
+        raidHighBar := na
+        raidHighExtreme := na
+        raidHighFractal := na
+        raidHighFractalReady := false
+        raidHighReturnedToIB := false
 
-if raidHighSeen and not tradeTaken and high > ibHigh
+if raidHighSeen and not raidHighReturnedToIB and not tradeTaken and high > ibHigh
     raidHighExtreme := na(raidHighExtreme) ? high : math.max(raidHighExtreme, high)
-if raidLowSeen and not tradeTaken and low < ibLow
+if raidLowSeen and not raidLowReturnedToIB and not tradeTaken and low < ibLow
     raidLowExtreme := na(raidLowExtreme) ? low : math.min(raidLowExtreme, low)
 
-if raidFirstSide == 1 and raidHighSeen and not raidHighReturnedToIB and low <= ibHigh
+raidHighReturnedOnBar = raidHighSeen and close <= ibHigh
+raidLowReturnedOnBar = raidLowSeen and close >= ibLow
+
+if not raidHighReturnedToIB and raidHighReturnedOnBar
     raidHighReturnedToIB := true
-if raidFirstSide == -1 and raidLowSeen and not raidLowReturnedToIB and high >= ibLow
+if not raidLowReturnedToIB and raidLowReturnedOnBar
     raidLowReturnedToIB := true
 
 pivotHigh = ta.pivothigh(high, fractalLeft, fractalRight)
@@ -312,8 +355,8 @@ shortBosBeforeReturn = lowBreakoutSeen and lowFractalReady and not lowReturnedBe
 if longBosBeforeReturn or shortBosBeforeReturn
     extensionInvalidated := true
 
-longExtensionSignal = highBreakoutSeen and not lowBreakoutSeen and highFractalReady and highReturnedBeforeBar and not extensionInvalidated and inTrade and not tradeTaken and close > highExtensionFractal
-shortExtensionSignal = lowBreakoutSeen and not highBreakoutSeen and lowFractalReady and lowReturnedBeforeBar and not extensionInvalidated and inTrade and not tradeTaken and close < lowExtensionFractal
+longExtensionSignal = highBreakoutSeen and not lowBreakoutSeen and highFractalReady and highReturnedBeforeBar and not extensionInvalidated and inTrade and flat and not tradeTaken and close > highExtensionFractal
+shortExtensionSignal = lowBreakoutSeen and not highBreakoutSeen and lowFractalReady and lowReturnedBeforeBar and not extensionInvalidated and inTrade and flat and not tradeTaken and close < lowExtensionFractal
 
 highReturnToIB = highBreakoutSeen and highFractalReady and not highReturnedToIB and not extensionInvalidated and low <= ibHigh
 lowReturnToIB = lowBreakoutSeen and lowFractalReady and not lowReturnedToIB and not extensionInvalidated and high >= ibLow
@@ -327,30 +370,32 @@ longExtension = enableExtensionLong and longExtensionSignal and longAllowed
 shortExtension = enableExtensionShort and shortExtensionSignal and shortAllowed
 directRaidShortSignal = raidFirstSide == 1 and raidLowBreakout and not raidLowFractalReady and close < ibLow
 directRaidLongSignal = raidFirstSide == -1 and raidHighBreakout and not raidHighFractalReady and close > ibHigh
-nextBarRaidShortSignal = raidFirstSide == 1 and raidLowSeen and bar_index == raidLowBar + 1 and not raidLowFractalReady and close < ibLow and low < raidLowExtreme[1]
-nextBarRaidLongSignal = raidFirstSide == -1 and raidHighSeen and bar_index == raidHighBar + 1 and not raidHighFractalReady and close > ibHigh and high > raidHighExtreme[1]
-fractalBosRaidShortSignal = raidFirstSide == 1 and raidLowSeen and raidLowFractalReady and close < raidLowFractal
-fractalBosRaidLongSignal = raidFirstSide == -1 and raidHighSeen and raidHighFractalReady and close > raidHighFractal
-raidLongSignal = inTrade and not tradeTaken and (directRaidLongSignal or nextBarRaidLongSignal or fractalBosRaidLongSignal)
-raidShortSignal = inTrade and not tradeTaken and (directRaidShortSignal or nextBarRaidShortSignal or fractalBosRaidShortSignal)
+fractalBosRaidShortSignal = raidFirstSide == 1 and raidLowSeen and raidLowFractalReady and close < raidLowFractal and close[1] >= raidLowFractal
+fractalBosRaidLongSignal = raidFirstSide == -1 and raidHighSeen and raidHighFractalReady and close > raidHighFractal and close[1] <= raidHighFractal
+raidLongSignal = inTrade and flat and not tradeTaken and (directRaidLongSignal or nextBarRaidLongSignal or fractalBosRaidLongSignal)
+raidShortSignal = inTrade and flat and not tradeTaken and (directRaidShortSignal or nextBarRaidShortSignal or fractalBosRaidShortSignal)
 raidLong = enableRaidLong and raidLongSignal and longAllowed
 raidShort = enableRaidShort and raidShortSignal and shortAllowed
 
 if raidShort
-    sl = raidHighExtreme
+    raidShortMode = directRaidShortSignal ? "DIRECT" : nextBarRaidShortSignal ? "NEXT" : "FRACTAL"
+    raidShortComment = "Raid Short " + raidShortMode + " H" + str.tostring(raidHighCount) + " L" + str.tostring(raidLowCount)
+    sl = raidHighExtreme + raidStopBufferTicks * syminfo.mintick
     tp = close - (sl - close)
     qty = positionQty(close, sl)
-    strategy.entry("IB Raid Short", strategy.short, qty=qty)
+    strategy.entry("IB Raid Short", strategy.short, qty=qty, comment=raidShortComment)
     strategy.exit("IB Raid Short 1R", "IB Raid Short", stop=sl, limit=tp)
     if webhookSecret != ""
         alert(jsonPayload("RAID", "SHORT", close, ibHigh, ibLow, ibMid, sl, tp), alert.freq_once_per_bar_close)
     tradeTaken := true
 
 if raidLong
-    sl = raidLowExtreme
+    raidLongMode = directRaidLongSignal ? "DIRECT" : nextBarRaidLongSignal ? "NEXT" : "FRACTAL"
+    raidLongComment = "Raid Long " + raidLongMode + " H" + str.tostring(raidHighCount) + " L" + str.tostring(raidLowCount)
+    sl = raidLowExtreme - raidStopBufferTicks * syminfo.mintick
     tp = close + (close - sl)
     qty = positionQty(close, sl)
-    strategy.entry("IB Raid Long", strategy.long, qty=qty)
+    strategy.entry("IB Raid Long", strategy.long, qty=qty, comment=raidLongComment)
     strategy.exit("IB Raid Long 1R", "IB Raid Long", stop=sl, limit=tp)
     if webhookSecret != ""
         alert(jsonPayload("RAID", "LONG", close, ibHigh, ibLow, ibMid, sl, tp), alert.freq_once_per_bar_close)
@@ -396,6 +441,7 @@ plotshape(highReturnToIB, title="High Return To IB", text="Ret", style=shape.dia
 plotshape(lowReturnToIB, title="Low Return To IB", text="Ret", style=shape.diamond, location=location.abovebar, color=color.new(color.orange, 0), textcolor=color.black, size=size.tiny)
 plotshape(longBosBeforeReturn, title="Skipped Long BoS Before Return", text="Skip", style=shape.xcross, location=location.abovebar, color=color.new(color.red, 0), textcolor=color.white, size=size.tiny)
 plotshape(shortBosBeforeReturn, title="Skipped Short BoS Before Return", text="Skip", style=shape.xcross, location=location.belowbar, color=color.new(color.red, 0), textcolor=color.white, size=size.tiny)
+plotshape(raidAmbiguousBar, title="Ambiguous Two-Sided Raid", text="2-Side", style=shape.xcross, location=location.abovebar, color=color.new(color.gray, 0), textcolor=color.white, size=size.tiny)
 plotshape(raidLong, title="Raid Long", text="Raid L", style=shape.labelup, location=location.belowbar, color=color.new(color.lime, 0), textcolor=color.black)
 plotshape(raidShort, title="Raid Short", text="Raid S", style=shape.labeldown, location=location.abovebar, color=color.new(color.maroon, 0), textcolor=color.white)
 plotshape(longExtension, title="Extension Long", text="Ext L", style=shape.labelup, location=location.belowbar, color=color.new(color.green, 0), textcolor=color.white)
