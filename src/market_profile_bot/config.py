@@ -10,6 +10,9 @@ from dotenv import load_dotenv
 BINGX_BASE_URL = "https://open-api.bingx.com"
 BINGX_SIZE_FIELD = "quantity"
 BINGX_ORDER_ENDPOINT = "/openApi/swap/v2/trade/order"
+BINGX_BALANCE_ENDPOINT = "/openApi/swap/v2/user/balance"
+BINGX_MARGIN_TYPE_ENDPOINT = "/openApi/swap/v2/trade/marginType"
+BINGX_LEVERAGE_ENDPOINT = "/openApi/swap/v2/trade/leverage"
 BINGX_RECV_WINDOW = 5000
 BINGX_ENABLE_SL_TP = True
 

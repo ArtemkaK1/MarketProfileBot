@@ -5,12 +5,16 @@ import hmac
 import json
 import logging
 import time
+from dataclasses import dataclass
 from decimal import Decimal, ROUND_CEILING
 from urllib import error, parse, request
 
 from .config import (
     BINGX_BASE_URL,
+    BINGX_BALANCE_ENDPOINT,
     BINGX_ENABLE_SL_TP,
+    BINGX_LEVERAGE_ENDPOINT,
+    BINGX_MARGIN_TYPE_ENDPOINT,
     BINGX_ORDER_ENDPOINT,
     BINGX_RECV_WINDOW,
     BINGX_SIZE_FIELD,
@@ -20,6 +24,16 @@ from .execution import ExecutionResult
 from .models import Direction, TradingViewAlert
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class BingXAccountState:
+    symbol: str
+    balance: Decimal
+    available_margin: Decimal | None
+    margin_type: str
+    long_leverage: Decimal
+    short_leverage: Decimal
 
 
 class BingXExecutor:
@@ -48,6 +62,41 @@ class BingXExecutor:
         order_id = _extract_order_id(data)
         return ExecutionResult("filled", "BingX market order submitted", order_id=order_id)
 
+    def current_state(self) -> BingXAccountState:
+        """Return the current USDT perpetual-futures state for the configured symbol."""
+        self._validate_api_keys()
+        common_params = {
+            "symbol": self.settings.bingx_symbol,
+            "timestamp": int(time.time() * 1000),
+            "recvWindow": BINGX_RECV_WINDOW,
+        }
+        balance_response = self._signed_request(
+            "GET",
+            BINGX_BALANCE_ENDPOINT,
+            {"timestamp": common_params["timestamp"], "recvWindow": BINGX_RECV_WINDOW},
+        )
+        margin_response = self._signed_request(
+            "GET", BINGX_MARGIN_TYPE_ENDPOINT, common_params
+        )
+        leverage_response = self._signed_request(
+            "GET", BINGX_LEVERAGE_ENDPOINT, common_params
+        )
+
+        balance_data = _response_data(balance_response).get("balance", {})
+        margin_data = _response_data(margin_response)
+        leverage_data = _response_data(leverage_response)
+        try:
+            return BingXAccountState(
+                symbol=self.settings.bingx_symbol,
+                balance=Decimal(str(balance_data["balance"])),
+                available_margin=_optional_decimal(balance_data.get("availableMargin")),
+                margin_type=str(margin_data["marginType"]).upper(),
+                long_leverage=Decimal(str(leverage_data["longLeverage"])),
+                short_leverage=Decimal(str(leverage_data["shortLeverage"])),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise RuntimeError("BingX returned an unexpected account-state response") from exc
+
     def _validate_live_settings(self) -> None:
         missing = []
         if not self.settings.bingx_api_key:
@@ -62,6 +111,15 @@ class BingXExecutor:
             missing.append("BINGX_RISK_PERCENT must be > 0")
         if self.settings.bingx_min_usdt_step <= 0:
             missing.append("BINGX_MIN_USDT_STEP must be > 0")
+        if missing:
+            raise RuntimeError("Missing BingX configuration: " + ", ".join(missing))
+
+    def _validate_api_keys(self) -> None:
+        missing = []
+        if not self.settings.bingx_api_key:
+            missing.append("BINGX_API_KEY")
+        if not self.settings.bingx_secret_key:
+            missing.append("BINGX_SECRET_KEY")
         if missing:
             raise RuntimeError("Missing BingX configuration: " + ", ".join(missing))
 
@@ -113,7 +171,12 @@ class BingXExecutor:
         try:
             with request.urlopen(req, timeout=15) as response:
                 response_body = response.read().decode("utf-8")
-                return json.loads(response_body) if response_body else {}
+                payload = json.loads(response_body) if response_body else {}
+                code = payload.get("code")
+                if code not in (None, 0, "0"):
+                    message = payload.get("msg") or payload.get("message") or "unknown error"
+                    raise RuntimeError(f"BingX request failed: {message} (code {code})")
+                return payload
         except error.HTTPError as exc:
             body_text = exc.read().decode("utf-8", errors="replace")
             raise RuntimeError(f"BingX request failed: HTTP {exc.code} {body_text}") from exc
@@ -154,3 +217,16 @@ def _extract_order_id(data: dict) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _response_data(response: dict) -> dict:
+    data = response.get("data", response)
+    if not isinstance(data, dict):
+        raise RuntimeError("BingX returned an unexpected response")
+    return data
+
+
+def _optional_decimal(value: object) -> Decimal | None:
+    if value is None:
+        return None
+    return Decimal(str(value))

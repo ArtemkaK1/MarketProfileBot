@@ -1,7 +1,13 @@
 from datetime import datetime
+from decimal import Decimal
 
+from market_profile_bot.bingx_executor import BingXAccountState
 from market_profile_bot.models import TradingViewAlert
-from market_profile_bot.telegram import TelegramNotifier, format_signal_message
+from market_profile_bot.telegram import (
+    TelegramNotifier,
+    format_account_state_message,
+    format_signal_message,
+)
 
 
 def payload(**overrides):
@@ -38,10 +44,10 @@ def test_format_trade_signal_message_contains_order_context():
 
     message = format_signal_message(alert)
 
-    assert "TradingView signal: EXTENSION LONG" in message
+    assert "Extension signal · LONG" in message
     assert "Symbol: NAS100" in message
-    assert "SL: 18850.0" in message
-    assert "TP: 19150.0" in message
+    assert "Stop loss: 18850.0" in message
+    assert "Take profit: 19150.0" in message
     assert "Risk: 1.0%" in message
 
 
@@ -52,17 +58,40 @@ def test_format_ib_ready_message_contains_ib_levels():
 
     message = format_signal_message(alert)
 
-    assert "TradingView signal: IB_READY" in message
-    assert "IB High: 18950.0" in message
-    assert "IB Low: 18850.0" in message
-    assert "IB 0.5: 18900.0" in message
+    assert "Initial balance is ready" in message
+    assert "High: 18950.0" in message
+    assert "Low: 18850.0" in message
+    assert "Midpoint: 18900.0" in message
 
 
 def test_bot_started_message_contains_runtime_flags(monkeypatch):
     sent = []
     notifier = TelegramNotifier(bot_token="token", chat_id="chat", enabled=True)
-    monkeypatch.setattr(TelegramNotifier, "send", lambda _self, text: sent.append(text))
+    monkeypatch.setattr(
+        TelegramNotifier, "send", lambda _self, text, **kwargs: sent.append(text)
+    )
 
     notifier.bot_started(backend="bingx", dry_run=True, auto_trade=False)
 
-    assert sent == ["Bot is active\nBackend: bingx\nDRY_RUN: True\nAUTO_TRADE: False"]
+    assert "🟢 Bot started" in sent[0]
+    assert "Execution: Simulation" in sent[0]
+    assert "Auto-trading: Off" in sent[0]
+    assert "/state" in sent[0]
+
+
+def test_format_account_state_message_shows_separate_long_short_leverage():
+    state = BingXAccountState(
+        symbol="NASDAQ100-USDT",
+        balance=Decimal("123.4500"),
+        available_margin=Decimal("100.00"),
+        margin_type="CROSSED",
+        long_leverage=Decimal("10"),
+        short_leverage=Decimal("5"),
+    )
+
+    message = format_account_state_message(state)
+
+    assert "Balance: 123.45 USDT" in message
+    assert "Available margin: 100 USDT" in message
+    assert "Margin: Cross" in message
+    assert "Leverage: Long 10x · Short 5x" in message

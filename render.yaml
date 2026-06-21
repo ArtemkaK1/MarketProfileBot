@@ -1,7 +1,0 @@
-services:
-  - type: web
-    name: market-profile-bot
-    env: docker
-    plan: starter
-    healthCheckPath: /health
-    autoDeploy: true

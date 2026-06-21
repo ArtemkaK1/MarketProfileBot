@@ -82,6 +82,20 @@ TELEGRAM_BOT_TOKEN=
 TELEGRAM_CHAT_ID=
 ```
 
+### Telegram commands
+
+The bot supports `/state`, which reports the current BingX USDT perpetual-futures balance,
+available margin, margin mode, and long/short leverage for `BINGX_SYMBOL`.
+
+After deploying the service, register its Telegram webhook once:
+
+```bash
+curl "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook?url=https://YOUR-DOMAIN/telegram/webhook"
+```
+
+Only commands from `TELEGRAM_CHAT_ID` are accepted. The BingX API key needs permission to
+read the futures account; trading permission is still required for live order execution.
+
 Run locally:
 
 ```bash
@@ -197,12 +211,12 @@ docker compose down
 
 `docker-compose.yml` reads `.env`, so `DRY_RUN` and `AUTO_TRADE` are controlled there. Keep `DRY_RUN=true` until the webhook, Telegram, BingX symbol, and demo execution are verified.
 
-## Render Deploy
+## Railway Deploy
 
 1. Push this repository to GitHub.
-2. In Render, create a new **Web Service** from the repository.
-3. Select Docker deployment. Render will use `Dockerfile`; `render.yaml` is also included for blueprint-based deployment.
-4. Set these environment variables in Render:
+2. In Railway, create a new project and select **Deploy from GitHub repo**.
+3. Select this repository. Railway automatically detects and builds the root `Dockerfile`.
+4. Add these variables to the service's **Variables** tab:
 
 ```env
 WEBHOOK_SECRET=
@@ -221,16 +235,24 @@ TELEGRAM_BOT_TOKEN=
 TELEGRAM_CHAT_ID=
 ```
 
-5. Deploy, then check:
+5. Under **Settings → Networking**, generate a public domain.
+6. Under the service settings, set the healthcheck path to `/health`.
+7. Deploy, then check:
 
 ```text
-https://YOUR-RENDER-SERVICE.onrender.com/health
+https://YOUR-SERVICE.up.railway.app/health
 ```
 
 TradingView webhook URL:
 
 ```text
-https://YOUR-RENDER-SERVICE.onrender.com/webhook/tradingview
+https://YOUR-SERVICE.up.railway.app/webhook/tradingview
+```
+
+Telegram webhook registration:
+
+```bash
+curl "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook?url=https://YOUR-SERVICE.up.railway.app/telegram/webhook"
 ```
 
 Keep `DRY_RUN=true` and `AUTO_TRADE=false` for the first alert test. When Telegram receives the signal and `/health` is stable, switch `AUTO_TRADE=true` while keeping `DRY_RUN=true`. Only switch `DRY_RUN=false` after a small live test is acceptable.

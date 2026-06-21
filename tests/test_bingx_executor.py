@@ -1,4 +1,5 @@
 from datetime import datetime, time
+from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -96,3 +97,40 @@ def test_extract_order_id_accepts_common_bingx_response_shape():
     assert _extract_order_id({"data": {"orderId": "123"}}) == 123
     assert _extract_order_id({"orderId": 456}) == 456
     assert _extract_order_id({"data": {"orderId": "not-numeric"}}) is None
+
+
+def test_current_state_combines_balance_margin_and_leverage(monkeypatch):
+    executor = BingXExecutor(settings(bingx_api_key="key", bingx_secret_key="secret"))
+    responses = {
+        "/openApi/swap/v2/user/balance": {
+            "code": 0,
+            "data": {"balance": {"balance": "123.45", "availableMargin": "98.76"}},
+        },
+        "/openApi/swap/v2/trade/marginType": {
+            "code": 0,
+            "data": {"marginType": "CROSSED"},
+        },
+        "/openApi/swap/v2/trade/leverage": {
+            "code": 0,
+            "data": {"longLeverage": 10, "shortLeverage": 5},
+        },
+    }
+    monkeypatch.setattr(
+        executor,
+        "_signed_request",
+        lambda method, path, params: responses[path],
+    )
+
+    state = executor.current_state()
+
+    assert state.symbol == "NASDAQ100-USDT"
+    assert state.balance == Decimal("123.45")
+    assert state.available_margin == Decimal("98.76")
+    assert state.margin_type == "CROSSED"
+    assert state.long_leverage == Decimal("10")
+    assert state.short_leverage == Decimal("5")
+
+
+def test_current_state_requires_api_keys():
+    with pytest.raises(RuntimeError, match="BINGX_API_KEY"):
+        BingXExecutor(settings()).current_state()

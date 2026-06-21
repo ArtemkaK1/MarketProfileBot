@@ -42,6 +42,24 @@ def create_app() -> FastAPI:
             "auto_trade": settings.auto_trade,
         }
 
+    @app.post("/telegram/webhook")
+    def telegram_webhook(update: dict):
+        message = update.get("message") or update.get("edited_message") or {}
+        chat_id = str(message.get("chat", {}).get("id", ""))
+        command = str(message.get("text", "")).strip().split(maxsplit=1)[0].split("@", 1)[0]
+
+        if not notifier.configured or chat_id != str(settings.telegram_chat_id):
+            return {"status": "ignored"}
+        if command != "/state":
+            return {"status": "ignored"}
+
+        try:
+            notifier.account_state(executor.current_state(), chat_id=chat_id)
+        except RuntimeError as exc:
+            logger.exception("Could not retrieve BingX account state")
+            notifier.command_error(str(exc), chat_id=chat_id)
+        return {"status": "ok"}
+
     @app.post("/webhook/tradingview")
     def tradingview_webhook(alert: TradingViewAlert):
         if not settings.webhook_secret:
