@@ -119,7 +119,9 @@ BINGX_RISK_PERCENT=5.0
 BINGX_MIN_USDT_STEP=0.01
 ```
 
-Confirm the exact TradFi NASDAQ100 API symbol in BingX. If the real symbol differs, update `BINGX_SYMBOL`.
+`BINGX_SYMBOL` may use the BingX display name, such as `NASDAQ100-USDT`. At startup the bot
+resolves it against BingX's live contracts list and uses the corresponding internal API symbol
+for account queries and orders.
 
 The bot assumes BingX order size is USDT notional. It calculates size from the TradingView alert entry price and SL:
 

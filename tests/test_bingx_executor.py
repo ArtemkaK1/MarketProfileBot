@@ -101,6 +101,7 @@ def test_extract_order_id_accepts_common_bingx_response_shape():
 
 def test_current_state_combines_balance_margin_and_leverage(monkeypatch):
     executor = BingXExecutor(settings(bingx_api_key="key", bingx_secret_key="secret"))
+    monkeypatch.setattr(executor, "_resolve_symbol", lambda: "NCSINASDAQ1002USD-USDT")
     responses = {
         "/openApi/swap/v2/user/balance": {
             "code": 0,
@@ -129,6 +130,41 @@ def test_current_state_combines_balance_margin_and_leverage(monkeypatch):
     assert state.margin_type == "CROSSED"
     assert state.long_leverage == Decimal("10")
     assert state.short_leverage == Decimal("5")
+
+
+def test_resolve_symbol_maps_display_name_and_caches_result(monkeypatch):
+    executor = BingXExecutor(settings())
+    calls = []
+    monkeypatch.setattr(
+        executor,
+        "_public_request",
+        lambda path: calls.append(path)
+        or {
+            "code": 0,
+            "data": [
+                {
+                    "symbol": "NCSINASDAQ1002USD-USDT",
+                    "displayName": "NASDAQ100-USDT",
+                }
+            ],
+        },
+    )
+
+    assert executor._resolve_symbol() == "NCSINASDAQ1002USD-USDT"
+    assert executor._resolve_symbol() == "NCSINASDAQ1002USD-USDT"
+    assert calls == ["/openApi/swap/v2/quote/contracts"]
+
+
+def test_resolve_symbol_rejects_unknown_contract(monkeypatch):
+    executor = BingXExecutor(settings(bingx_symbol="UNKNOWN-USDT"))
+    monkeypatch.setattr(
+        executor,
+        "_public_request",
+        lambda path: {"code": 0, "data": []},
+    )
+
+    with pytest.raises(RuntimeError, match="UNKNOWN-USDT.*not found"):
+        executor._resolve_symbol()
 
 
 def test_current_state_requires_api_keys():

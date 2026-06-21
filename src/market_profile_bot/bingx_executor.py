@@ -12,6 +12,7 @@ from urllib import error, parse, request
 from .config import (
     BINGX_BASE_URL,
     BINGX_BALANCE_ENDPOINT,
+    BINGX_CONTRACTS_ENDPOINT,
     BINGX_ENABLE_SL_TP,
     BINGX_LEVERAGE_ENDPOINT,
     BINGX_MARGIN_TYPE_ENDPOINT,
@@ -39,6 +40,7 @@ class BingXAccountState:
 class BingXExecutor:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
+        self._resolved_symbol: str | None = None
 
     def execute(self, alert: TradingViewAlert) -> ExecutionResult:
         if alert.direction == Direction.NONE:
@@ -65,8 +67,9 @@ class BingXExecutor:
     def current_state(self) -> BingXAccountState:
         """Return the current USDT perpetual-futures state for the configured symbol."""
         self._validate_api_keys()
+        api_symbol = self._resolve_symbol()
         common_params = {
-            "symbol": self.settings.bingx_symbol,
+            "symbol": api_symbol,
             "timestamp": int(time.time() * 1000),
             "recvWindow": BINGX_RECV_WINDOW,
         }
@@ -125,7 +128,52 @@ class BingXExecutor:
 
     def _place_market_order(self, alert: TradingViewAlert, size_usdt: float) -> dict:
         params = self._order_params(alert, size_usdt)
+        params["symbol"] = self._resolve_symbol()
         return self._signed_request("POST", BINGX_ORDER_ENDPOINT, params)
+
+    def _resolve_symbol(self) -> str:
+        if self._resolved_symbol is not None:
+            return self._resolved_symbol
+
+        configured_symbol = self.settings.bingx_symbol.strip().upper()
+        response = self._public_request(BINGX_CONTRACTS_ENDPOINT)
+        contracts = response.get("data")
+        if not isinstance(contracts, list):
+            raise RuntimeError("BingX returned an unexpected contracts response")
+
+        for contract in contracts:
+            if not isinstance(contract, dict):
+                continue
+            api_symbol = str(contract.get("symbol", "")).upper()
+            display_name = str(contract.get("displayName", "")).upper()
+            if configured_symbol in {api_symbol, display_name}:
+                self._resolved_symbol = api_symbol
+                if api_symbol != configured_symbol:
+                    logger.info(
+                        "Resolved BingX display symbol %s to API symbol %s",
+                        self.settings.bingx_symbol,
+                        api_symbol,
+                    )
+                return api_symbol
+
+        raise RuntimeError(
+            f"BingX futures symbol '{self.settings.bingx_symbol}' was not found"
+        )
+
+    def _public_request(self, path: str) -> dict:
+        req = request.Request(f"{BINGX_BASE_URL}{path}", method="GET")
+        try:
+            with request.urlopen(req, timeout=15) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        except error.HTTPError as exc:
+            body_text = exc.read().decode("utf-8", errors="replace")
+            raise RuntimeError(f"BingX request failed: HTTP {exc.code} {body_text}") from exc
+
+        code = payload.get("code")
+        if code not in (None, 0, "0"):
+            message = payload.get("msg") or payload.get("message") or "unknown error"
+            raise RuntimeError(f"BingX request failed: {message} (code {code})")
+        return payload
 
     def _order_params(self, alert: TradingViewAlert, size_usdt: float) -> dict:
         params = {
