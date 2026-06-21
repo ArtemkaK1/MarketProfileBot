@@ -8,6 +8,7 @@ from market_profile_bot.telegram import (
     format_account_state_message,
     format_signal_message,
 )
+from market_profile_bot import telegram
 
 
 def payload(**overrides):
@@ -95,3 +96,29 @@ def test_format_account_state_message_shows_separate_long_short_leverage():
     assert "Available margin: 100 USDT" in message
     assert "Margin: Cross" in message
     assert "Leverage: Long 10x · Short 5x" in message
+
+
+def test_set_webhook_registers_allowed_message_updates(monkeypatch):
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def read(self):
+            return b'{"ok": true, "result": true}'
+
+    captured = []
+
+    def fake_urlopen(req, timeout):
+        captured.append((req, timeout))
+        return Response()
+
+    monkeypatch.setattr(telegram.request, "urlopen", fake_urlopen)
+    notifier = TelegramNotifier(bot_token="token", chat_id="123", enabled=True)
+
+    assert notifier.set_webhook("https://example.com/telegram/webhook")
+    assert captured[0][0].full_url.endswith("/bottoken/setWebhook")
+    assert b"https%3A%2F%2Fexample.com%2Ftelegram%2Fwebhook" in captured[0][0].data
+    assert b"allowed_updates" in captured[0][0].data

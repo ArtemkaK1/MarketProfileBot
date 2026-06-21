@@ -80,6 +80,7 @@ ENTRY_CUTOFF=16:00
 TELEGRAM_ENABLED=false
 TELEGRAM_BOT_TOKEN=
 TELEGRAM_CHAT_ID=
+TELEGRAM_WEBHOOK_URL=
 ```
 
 ### Telegram commands
@@ -87,10 +88,11 @@ TELEGRAM_CHAT_ID=
 The bot supports `/state`, which reports the current BingX USDT perpetual-futures balance,
 available margin, margin mode, and long/short leverage for `BINGX_SYMBOL`.
 
-After deploying the service, register its Telegram webhook once:
+The bot registers its Telegram webhook automatically at startup. On Railway it uses
+`RAILWAY_PUBLIC_DOMAIN`. Outside Railway, set the public base URL explicitly:
 
-```bash
-curl "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook?url=https://YOUR-DOMAIN/telegram/webhook"
+```env
+TELEGRAM_WEBHOOK_URL=https://YOUR-DOMAIN
 ```
 
 Only commands from `TELEGRAM_CHAT_ID` are accepted. The BingX API key needs permission to
@@ -249,11 +251,8 @@ TradingView webhook URL:
 https://YOUR-SERVICE.up.railway.app/webhook/tradingview
 ```
 
-Telegram webhook registration:
-
-```bash
-curl "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook?url=https://YOUR-SERVICE.up.railway.app/telegram/webhook"
-```
+Telegram command delivery is configured automatically from Railway's public domain when
+the service starts. The deployment logs should contain `Telegram webhook registered`.
 
 Keep `DRY_RUN=true` and `AUTO_TRADE=false` for the first alert test. When Telegram receives the signal and `/health` is stable, switch `AUTO_TRADE=true` while keeping `DRY_RUN=true`. Only switch `DRY_RUN=false` after a small live test is acceptable.
 

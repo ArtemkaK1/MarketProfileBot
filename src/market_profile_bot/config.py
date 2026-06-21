@@ -63,6 +63,19 @@ class Settings:
     telegram_chat_id: str | None
     telegram_enabled: bool
 
+    @property
+    def telegram_webhook_url(self) -> str | None:
+        explicit_url = os.getenv("TELEGRAM_WEBHOOK_URL", "").strip()
+        if explicit_url:
+            explicit_url = explicit_url.rstrip("/")
+            if explicit_url.endswith("/telegram/webhook"):
+                return explicit_url
+            return explicit_url + "/telegram/webhook"
+        railway_domain = os.getenv("RAILWAY_PUBLIC_DOMAIN", "").strip()
+        if railway_domain:
+            return f"https://{railway_domain}/telegram/webhook"
+        return None
+
     @classmethod
     def from_env(cls) -> "Settings":
         load_dotenv()

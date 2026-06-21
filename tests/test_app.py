@@ -65,3 +65,22 @@ def test_state_command_replies_only_to_configured_chat(monkeypatch):
     assert len(sent) == 1
     assert "Balance: 123.45 USDT" in sent[0][0]
     assert sent[0][1] == "123"
+
+
+def test_startup_registers_railway_telegram_webhook(monkeypatch):
+    monkeypatch.setattr(Settings, "from_env", classmethod(lambda cls: settings()))
+    monkeypatch.setenv("RAILWAY_PUBLIC_DOMAIN", "bot-production.up.railway.app")
+    registered = []
+    monkeypatch.setattr(
+        TelegramNotifier,
+        "set_webhook",
+        lambda self, url: registered.append(url) or True,
+    )
+    monkeypatch.setattr(TelegramNotifier, "send", lambda self, text, **kwargs: None)
+
+    with TestClient(create_app()):
+        pass
+
+    assert registered == [
+        "https://bot-production.up.railway.app/telegram/webhook"
+    ]

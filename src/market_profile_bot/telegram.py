@@ -54,6 +54,29 @@ class TelegramNotifier:
         except Exception:
             logger.exception("Telegram notification failed")
 
+    def set_webhook(self, webhook_url: str) -> bool:
+        if not self.configured:
+            return False
+
+        url = f"https://api.telegram.org/bot{self.bot_token}/setWebhook"
+        body = parse.urlencode(
+            {
+                "url": webhook_url,
+                "allowed_updates": json.dumps(["message", "edited_message"]),
+            }
+        ).encode()
+        req = request.Request(url, data=body, method="POST")
+        try:
+            with request.urlopen(req, timeout=self.timeout) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+                if payload.get("ok"):
+                    logger.info("Telegram webhook registered: %s", webhook_url)
+                    return True
+                logger.error("Telegram setWebhook failed: %s", payload)
+        except Exception:
+            logger.exception("Telegram webhook registration failed")
+        return False
+
     def signal_received(self, alert: TradingViewAlert) -> None:
         self.send(format_signal_message(alert))
 

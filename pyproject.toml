@@ -14,5 +14,11 @@ dependencies = [
     "tzdata>=2024.1",
 ]
 
+[project.optional-dependencies]
+test = [
+    "httpx2",
+    "pytest>=8,<10",
+]
+
 [tool.setuptools.packages.find]
 where = ["src"]

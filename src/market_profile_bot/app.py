@@ -27,6 +27,14 @@ def create_app() -> FastAPI:
 
     @app.on_event("startup")
     def notify_startup():
+        webhook_url = settings.telegram_webhook_url
+        if webhook_url:
+            notifier.set_webhook(webhook_url)
+        elif notifier.configured:
+            logger.warning(
+                "Telegram commands are disabled: set TELEGRAM_WEBHOOK_URL or "
+                "RAILWAY_PUBLIC_DOMAIN"
+            )
         notifier.bot_started(
             backend="bingx",
             dry_run=settings.dry_run,
