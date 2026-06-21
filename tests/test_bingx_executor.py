@@ -132,8 +132,8 @@ def test_current_state_combines_balance_margin_and_leverage(monkeypatch):
     assert state.short_leverage == Decimal("5")
 
 
-def test_resolve_symbol_maps_display_name_and_caches_result(monkeypatch):
-    executor = BingXExecutor(settings())
+def test_resolve_symbol_maps_usdt_display_alias_and_caches_result(monkeypatch):
+    executor = BingXExecutor(settings(bingx_symbol="NASDAQ100"))
     calls = []
     monkeypatch.setattr(
         executor,
@@ -145,6 +145,7 @@ def test_resolve_symbol_maps_display_name_and_caches_result(monkeypatch):
                 {
                     "symbol": "NCSINASDAQ1002USD-USDT",
                     "displayName": "NASDAQ100-USDT",
+                    "currency": "USDT",
                 }
             ],
         },

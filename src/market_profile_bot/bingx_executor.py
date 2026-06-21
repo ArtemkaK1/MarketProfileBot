@@ -146,7 +146,12 @@ class BingXExecutor:
                 continue
             api_symbol = str(contract.get("symbol", "")).upper()
             display_name = str(contract.get("displayName", "")).upper()
-            if configured_symbol in {api_symbol, display_name}:
+            currency = str(contract.get("currency", "")).upper()
+            display_base = _without_settlement_currency(display_name)
+            is_usdt_display_alias = (
+                currency == "USDT" and configured_symbol == display_base
+            )
+            if configured_symbol in {api_symbol, display_name} or is_usdt_display_alias:
                 self._resolved_symbol = api_symbol
                 if api_symbol != configured_symbol:
                     logger.info(
@@ -278,3 +283,10 @@ def _optional_decimal(value: object) -> Decimal | None:
     if value is None:
         return None
     return Decimal(str(value))
+
+
+def _without_settlement_currency(symbol: str) -> str:
+    for suffix in ("-USDT", "-USDC"):
+        if symbol.endswith(suffix):
+            return symbol[: -len(suffix)]
+    return symbol
