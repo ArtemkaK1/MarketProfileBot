@@ -5,8 +5,15 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="2a9acabe-0260-48a1-8c25-01956489d627" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/.env.example" beforeDir="false" afterPath="$PROJECT_DIR$/.env.example" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/market_profile_bot/app.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/market_profile_bot/app.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/market_profile_bot/bingx_executor.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/market_profile_bot/bingx_executor.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/market_profile_bot/config.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/market_profile_bot/config.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/market_profile_bot/dedupe.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/market_profile_bot/dedupe.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/market_profile_bot/telegram.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/market_profile_bot/telegram.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/market_profile_bot/trade_limiter.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/market_profile_bot/trade_limiter.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/test_app.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_app.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/tests/test_bingx_executor.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_bingx_executor.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />

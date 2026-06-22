@@ -6,7 +6,7 @@ import json
 import logging
 import time
 from dataclasses import dataclass
-from decimal import Decimal, ROUND_CEILING
+from decimal import Decimal, InvalidOperation, ROUND_FLOOR
 from urllib import error, parse, request
 
 from .config import (
@@ -14,11 +14,15 @@ from .config import (
     BINGX_BALANCE_ENDPOINT,
     BINGX_CONTRACTS_ENDPOINT,
     BINGX_ENABLE_SL_TP,
+    BINGX_FULL_ORDER_ENDPOINT,
     BINGX_LEVERAGE_ENDPOINT,
     BINGX_MARGIN_TYPE_ENDPOINT,
     BINGX_ORDER_ENDPOINT,
+    BINGX_POSITION_MODE_ENDPOINT,
+    BINGX_POSITIONS_ENDPOINT,
     BINGX_RECV_WINDOW,
     BINGX_SIZE_FIELD,
+    BINGX_TEST_ORDER_ENDPOINT,
     Settings,
 )
 from .execution import ExecutionResult
@@ -37,6 +41,13 @@ class BingXAccountState:
     short_leverage: Decimal
 
 
+@dataclass(frozen=True)
+class TradeSizing:
+    balance: Decimal
+    risk_amount: Decimal
+    quote_order_qty: Decimal
+
+
 class BingXExecutor:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
@@ -46,21 +57,38 @@ class BingXExecutor:
         if alert.direction == Direction.NONE:
             return ExecutionResult("ignored", "IB_READY does not open a position")
 
-        size_usdt = self._calculate_usdt_size(alert)
+        self._validate_execution_settings()
+        sizing = self._calculate_trade_sizing(alert, self._fetch_balance())
+        api_symbol = self._resolve_symbol()
+        position_side = self._position_side(alert.direction)
+        params = self._order_params(
+            alert,
+            sizing.quote_order_qty,
+            symbol=api_symbol,
+            position_side=position_side,
+            client_order_id=_client_order_id(alert.id),
+        )
+        test_params = dict(params)
+        test_params["clientOrderId"] = _client_order_id(alert.id, test=True)
+        self._signed_request("POST", BINGX_TEST_ORDER_ENDPOINT, test_params)
+
         if self.settings.dry_run:
             logger.info("DRY_RUN BingX alert: %s", alert.model_dump())
             return ExecutionResult(
                 "dry_run",
                 (
-                    f"{alert.direction} {self.settings.bingx_symbol} "
-                    f"{BINGX_SIZE_FIELD}={size_usdt} "
-                    f"risk_target={self._risk_amount()} "
-                    f"sl={alert.sl} tp={alert.tp}"
+                    f"BingX test order accepted · {alert.direction} "
+                    f"{self.settings.bingx_symbol} · balance={_number_text(sizing.balance)} USDT · "
+                    f"risk_target={_number_text(sizing.risk_amount)} USDT · "
+                    f"{BINGX_SIZE_FIELD}={_number_text(sizing.quote_order_qty)} USDT · "
+                    f"sl={alert.sl} · tp={alert.tp}"
                 ),
             )
 
-        self._validate_live_settings()
-        data = self._place_market_order(alert, size_usdt)
+        self._ensure_no_open_position(api_symbol)
+        self._ensure_no_strategy_order_today(alert, api_symbol)
+        params["timestamp"] = int(time.time() * 1000)
+        data = self._place_market_order(params)
         order_id = _extract_order_id(data)
         return ExecutionResult("filled", "BingX market order submitted", order_id=order_id)
 
@@ -97,10 +125,10 @@ class BingXExecutor:
                 long_leverage=Decimal(str(leverage_data["longLeverage"])),
                 short_leverage=Decimal(str(leverage_data["shortLeverage"])),
             )
-        except (KeyError, TypeError, ValueError) as exc:
+        except (InvalidOperation, KeyError, TypeError, ValueError) as exc:
             raise RuntimeError("BingX returned an unexpected account-state response") from exc
 
-    def _validate_live_settings(self) -> None:
+    def _validate_execution_settings(self) -> None:
         missing = []
         if not self.settings.bingx_api_key:
             missing.append("BINGX_API_KEY")
@@ -108,12 +136,12 @@ class BingXExecutor:
             missing.append("BINGX_SECRET_KEY")
         if not self.settings.bingx_symbol:
             missing.append("BINGX_SYMBOL")
-        if self.settings.bingx_initial_capital <= 0:
-            missing.append("BINGX_INITIAL_CAPITAL must be > 0")
-        if self.settings.bingx_risk_percent <= 0:
-            missing.append("BINGX_RISK_PERCENT must be > 0")
+        if not 0 < self.settings.bingx_risk_percent <= 100:
+            missing.append("BINGX_RISK_PERCENT must be > 0 and <= 100")
         if self.settings.bingx_min_usdt_step <= 0:
             missing.append("BINGX_MIN_USDT_STEP must be > 0")
+        if self.settings.bingx_max_notional_usdt <= 0:
+            missing.append("BINGX_MAX_NOTIONAL_USDT must be > 0")
         if missing:
             raise RuntimeError("Missing BingX configuration: " + ", ".join(missing))
 
@@ -126,10 +154,100 @@ class BingXExecutor:
         if missing:
             raise RuntimeError("Missing BingX configuration: " + ", ".join(missing))
 
-    def _place_market_order(self, alert: TradingViewAlert, size_usdt: float) -> dict:
-        params = self._order_params(alert, size_usdt)
-        params["symbol"] = self._resolve_symbol()
+    def _place_market_order(self, params: dict) -> dict:
         return self._signed_request("POST", BINGX_ORDER_ENDPOINT, params)
+
+    def _fetch_balance(self) -> Decimal:
+        balance_data = self._fetch_balance_data()
+        try:
+            balance = Decimal(str(balance_data["balance"]))
+        except (InvalidOperation, KeyError, TypeError, ValueError) as exc:
+            raise RuntimeError("BingX returned an unexpected balance response") from exc
+        if balance <= 0:
+            raise RuntimeError("BingX USDT futures balance must be greater than zero")
+        return balance
+
+    def _fetch_balance_data(self) -> dict:
+        response = self._signed_request(
+            "GET",
+            BINGX_BALANCE_ENDPOINT,
+            {"timestamp": int(time.time() * 1000), "recvWindow": BINGX_RECV_WINDOW},
+        )
+        balance_data = _response_data(response).get("balance", {})
+        if not isinstance(balance_data, dict):
+            raise RuntimeError("BingX returned an unexpected balance response")
+        return balance_data
+
+    def _position_side(self, direction: Direction) -> str:
+        response = self._signed_request(
+            "GET",
+            BINGX_POSITION_MODE_ENDPOINT,
+            {"timestamp": int(time.time() * 1000), "recvWindow": BINGX_RECV_WINDOW},
+        )
+        value = _response_data(response).get("dualSidePosition")
+        if isinstance(value, bool):
+            dual_side = value
+        elif isinstance(value, str) and value.lower() in {"true", "false"}:
+            dual_side = value.lower() == "true"
+        else:
+            raise RuntimeError("BingX returned an unexpected position-mode response")
+        if not dual_side:
+            return "BOTH"
+        return "LONG" if direction == Direction.LONG else "SHORT"
+
+    def _ensure_no_open_position(self, symbol: str) -> None:
+        response = self._signed_request(
+            "GET",
+            BINGX_POSITIONS_ENDPOINT,
+            {
+                "symbol": symbol,
+                "timestamp": int(time.time() * 1000),
+                "recvWindow": BINGX_RECV_WINDOW,
+            },
+        )
+        positions = response.get("data", [])
+        if not isinstance(positions, list):
+            raise RuntimeError("BingX returned an unexpected positions response")
+        for position in positions:
+            if not isinstance(position, dict):
+                continue
+            try:
+                amount = Decimal(str(position.get("positionAmt", "0")))
+            except (InvalidOperation, ValueError) as exc:
+                raise RuntimeError("BingX returned an unexpected positions response") from exc
+            if amount != 0:
+                raise RuntimeError(
+                    f"An open BingX position already exists for {self.settings.bingx_symbol}"
+                )
+
+    def _ensure_no_strategy_order_today(
+        self, alert: TradingViewAlert, symbol: str
+    ) -> None:
+        local_time = alert.time.astimezone(self.settings.timezone)
+        day_start = local_time.replace(hour=0, minute=0, second=0, microsecond=0)
+        day_end = day_start.replace(hour=23, minute=59, second=59, microsecond=999000)
+        response = self._signed_request(
+            "GET",
+            BINGX_FULL_ORDER_ENDPOINT,
+            {
+                "symbol": symbol,
+                "startTime": int(day_start.timestamp() * 1000),
+                "endTime": int(day_end.timestamp() * 1000),
+                "limit": 1000,
+                "timestamp": int(time.time() * 1000),
+                "recvWindow": BINGX_RECV_WINDOW,
+            },
+        )
+        data = _response_data(response)
+        orders = data.get("orders", [])
+        if not isinstance(orders, list):
+            raise RuntimeError("BingX returned an unexpected order-history response")
+        if any(
+            isinstance(order, dict)
+            and str(order.get("clientOrderId", "")).lower().startswith("mpb-")
+            for order in orders
+        ):
+            raise RuntimeError("A strategy order has already been placed for this market day")
 
     def _resolve_symbol(self) -> str:
         if self._resolved_symbol is not None:
@@ -180,13 +298,22 @@ class BingXExecutor:
             raise RuntimeError(f"BingX request failed: {message} (code {code})")
         return payload
 
-    def _order_params(self, alert: TradingViewAlert, size_usdt: float) -> dict:
+    def _order_params(
+        self,
+        alert: TradingViewAlert,
+        quote_order_qty: Decimal,
+        *,
+        symbol: str,
+        position_side: str,
+        client_order_id: str,
+    ) -> dict:
         params = {
-            "symbol": self.settings.bingx_symbol,
+            "symbol": symbol,
             "side": "BUY" if alert.direction == Direction.LONG else "SELL",
-            "positionSide": "LONG" if alert.direction == Direction.LONG else "SHORT",
+            "positionSide": position_side,
             "type": "MARKET",
-            BINGX_SIZE_FIELD: _number_text(size_usdt),
+            BINGX_SIZE_FIELD: _number_text(quote_order_qty),
+            "clientOrderId": client_order_id,
             "timestamp": int(time.time() * 1000),
             "recvWindow": BINGX_RECV_WINDOW,
         }
@@ -234,7 +361,9 @@ class BingXExecutor:
             body_text = exc.read().decode("utf-8", errors="replace")
             raise RuntimeError(f"BingX request failed: HTTP {exc.code} {body_text}") from exc
 
-    def _calculate_usdt_size(self, alert: TradingViewAlert) -> float:
+    def _calculate_trade_sizing(
+        self, alert: TradingViewAlert, balance: Decimal
+    ) -> TradeSizing:
         if alert.sl is None:
             raise RuntimeError("Cannot calculate BingX size: alert sl is missing")
         entry = Decimal(str(alert.price))
@@ -244,21 +373,34 @@ class BingXExecutor:
         if stop_distance <= 0:
             raise RuntimeError("Cannot calculate BingX size: stop distance must be > 0")
 
-        risk_amount = Decimal(str(self._risk_amount()))
+        if balance <= 0:
+            raise RuntimeError("Cannot calculate BingX size: balance must be > 0")
+        risk_amount = balance * Decimal(str(self.settings.bingx_risk_percent)) / Decimal("100")
         step = Decimal(str(self.settings.bingx_min_usdt_step))
-        raw_size = risk_amount * entry / stop_distance
-        stepped_size = (raw_size / step).to_integral_value(rounding=ROUND_CEILING) * step
-        return float(stepped_size)
-
-    def _risk_amount(self) -> float:
-        return self.settings.bingx_initial_capital * self.settings.bingx_risk_percent / 100
+        raw_notional = risk_amount * entry / stop_distance
+        quote_order_qty = (
+            raw_notional / step
+        ).to_integral_value(rounding=ROUND_FLOOR) * step
+        if quote_order_qty <= 0:
+            raise RuntimeError("Calculated BingX notional is below the configured USDT step")
+        max_notional = Decimal(str(self.settings.bingx_max_notional_usdt))
+        if quote_order_qty > max_notional:
+            raise RuntimeError(
+                f"Calculated BingX notional {_number_text(quote_order_qty)} USDT exceeds "
+                f"BINGX_MAX_NOTIONAL_USDT={_number_text(max_notional)}"
+            )
+        return TradeSizing(
+            balance=balance,
+            risk_amount=risk_amount,
+            quote_order_qty=quote_order_qty,
+        )
 
 
 def _query_string(params: dict) -> str:
     return parse.urlencode(sorted(params.items()))
 
 
-def _number_text(value: float) -> str:
+def _number_text(value: float | Decimal) -> str:
     return format(Decimal(str(value)).normalize(), "f")
 
 
@@ -290,3 +432,9 @@ def _without_settlement_currency(symbol: str) -> str:
         if symbol.endswith(suffix):
             return symbol[: -len(suffix)]
     return symbol
+
+
+def _client_order_id(alert_id: str, *, test: bool = False) -> str:
+    prefix = "mpbt" if test else "mpb"
+    digest = hashlib.sha256(alert_id.encode("utf-8")).hexdigest()
+    return f"{prefix}-{digest[: 40 - len(prefix) - 1]}"

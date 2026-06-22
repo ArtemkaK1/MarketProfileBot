@@ -69,9 +69,9 @@ WEBHOOK_SECRET=change-me
 BINGX_API_KEY=
 BINGX_SECRET_KEY=
 BINGX_SYMBOL=NASDAQ100-USDT
-BINGX_INITIAL_CAPITAL=100
 BINGX_RISK_PERCENT=5.0
 BINGX_MIN_USDT_STEP=0.01
+BINGX_MAX_NOTIONAL_USDT=1000
 
 DRY_RUN=true
 AUTO_TRADE=false
@@ -114,31 +114,46 @@ Create a BingX API key with trading permission and fill:
 BINGX_API_KEY=
 BINGX_SECRET_KEY=
 BINGX_SYMBOL=NASDAQ100-USDT
-BINGX_INITIAL_CAPITAL=100
 BINGX_RISK_PERCENT=5.0
 BINGX_MIN_USDT_STEP=0.01
+BINGX_MAX_NOTIONAL_USDT=1000
 ```
 
 `BINGX_SYMBOL` may use `NASDAQ100`, the BingX display name `NASDAQ100-USDT`, or the internal
 API symbol. The bot resolves it against BingX's live contracts list and uses the corresponding
 USDT contract symbol for account queries and orders.
 
-The bot assumes BingX order size is USDT notional. It calculates size from the TradingView alert entry price and SL:
+The bot reads the live BingX USDT futures balance before every trade. It targets a loss at
+the stop equal to `BINGX_RISK_PERCENT` of that balance and sends the resulting USDT notional
+through BingX's `quoteOrderQty` field:
 
 ```text
-risk_amount = BINGX_INITIAL_CAPITAL * BINGX_RISK_PERCENT / 100
-raw_usdt_size = risk_amount * entry_price / abs(entry_price - stop_loss)
-usdt_size = raw_usdt_size rounded up to BINGX_MIN_USDT_STEP
+risk_amount = live_futures_balance * BINGX_RISK_PERCENT / 100
+raw_usdt_notional = risk_amount * entry_price / abs(entry_price - stop_loss)
+usdt_notional = raw_usdt_notional rounded down to BINGX_MIN_USDT_STEP
 ```
 
-Rounding is upward, so actual risk is as close as possible to the target but not below it. Example: with `100` capital, `5%` risk, `20000` entry, and `19800` SL:
+Rounding is downward so sizing does not intentionally exceed the risk target. For example,
+with a `1100 USDT` balance, `5%` risk, `20000` entry, and `19800` SL:
 
 ```text
-risk_amount = 5
+risk_amount = 55
 stop_distance = 200
-raw_usdt_size = 5 * 20000 / 200 = 500
-usdt_size = 500
+raw_usdt_notional = 55 * 20000 / 200 = 5500
+usdt_notional = 5500
 ```
+
+`BINGX_MAX_NOTIONAL_USDT` is a hard safety limit. The bot rejects an order rather than place
+it when calculated notional exceeds this value. Leverage changes required margin, but does
+not change the target loss between entry and SL. Market slippage means realized loss cannot
+be guaranteed to equal the target exactly.
+
+Every order is first submitted to BingX's non-executing test-order endpoint with the same
+symbol, direction, sizing, and SL/TP. With `DRY_RUN=true`, the bot stops after BingX accepts
+that test. To exercise this path from TradingView, use `AUTO_TRADE=true` together with
+`DRY_RUN=true`. The bot also detects one-way versus hedge position mode automatically,
+rejects stacking onto an existing position, assigns a deterministic BingX `clientOrderId`,
+and checks BingX order history to preserve the one-strategy-trade-per-day rule across restarts.
 
 The BingX REST base URL, order endpoint, request size field, receive window, and SL/TP request shape are code defaults because they are implementation details, not deployment settings.
 
@@ -227,9 +242,9 @@ WEBHOOK_SECRET=
 BINGX_API_KEY=
 BINGX_SECRET_KEY=
 BINGX_SYMBOL=NASDAQ100-USDT
-BINGX_INITIAL_CAPITAL=100
 BINGX_RISK_PERCENT=5.0
 BINGX_MIN_USDT_STEP=0.01
+BINGX_MAX_NOTIONAL_USDT=1000
 DRY_RUN=true
 AUTO_TRADE=false
 MARKET_TIMEZONE=America/New_York
@@ -287,9 +302,10 @@ Example `RAID` alert:
 ## Important Defaults
 
 - The Python bot defaults to `DRY_RUN=true` and `AUTO_TRADE=false`.
-- Duplicate alert IDs are ignored during the process lifetime.
-- Only one auto-traded signal is accepted per market day.
+- Duplicate alert IDs are ignored in-process and mapped to deterministic BingX client order IDs.
+- Only one auto-traded signal is accepted per market day; live execution also checks BingX
+  order history so the guard survives Railway restarts.
 - The server-side entry cutoff defaults to `16:00` in `America/New_York`.
 - Trade alerts must include `sl` and `tp`.
-- BingX execution requires `BINGX_API_KEY`, `BINGX_SECRET_KEY`, `BINGX_SYMBOL`, `BINGX_INITIAL_CAPITAL`, `BINGX_RISK_PERCENT`, and `BINGX_MIN_USDT_STEP`.
+- BingX execution requires `BINGX_API_KEY`, `BINGX_SECRET_KEY`, `BINGX_SYMBOL`, `BINGX_RISK_PERCENT`, `BINGX_MIN_USDT_STEP`, and `BINGX_MAX_NOTIONAL_USDT`.
 - Telegram notifications are disabled unless `TELEGRAM_ENABLED=true`, `TELEGRAM_BOT_TOKEN`, and `TELEGRAM_CHAT_ID` are configured.

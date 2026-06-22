@@ -8,12 +8,16 @@ from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 
 BINGX_BASE_URL = "https://open-api.bingx.com"
-BINGX_SIZE_FIELD = "quantity"
+BINGX_SIZE_FIELD = "quoteOrderQty"
 BINGX_ORDER_ENDPOINT = "/openApi/swap/v2/trade/order"
+BINGX_TEST_ORDER_ENDPOINT = "/openApi/swap/v2/trade/order/test"
 BINGX_BALANCE_ENDPOINT = "/openApi/swap/v2/user/balance"
 BINGX_MARGIN_TYPE_ENDPOINT = "/openApi/swap/v2/trade/marginType"
 BINGX_LEVERAGE_ENDPOINT = "/openApi/swap/v2/trade/leverage"
 BINGX_CONTRACTS_ENDPOINT = "/openApi/swap/v2/quote/contracts"
+BINGX_POSITION_MODE_ENDPOINT = "/openApi/swap/v1/positionSide/dual"
+BINGX_POSITIONS_ENDPOINT = "/openApi/swap/v2/user/positions"
+BINGX_FULL_ORDER_ENDPOINT = "/openApi/swap/v1/trade/fullOrder"
 BINGX_RECV_WINDOW = 5000
 BINGX_ENABLE_SL_TP = True
 
@@ -53,9 +57,9 @@ class Settings:
     bingx_api_key: str | None
     bingx_secret_key: str | None
     bingx_symbol: str
-    bingx_initial_capital: float
     bingx_risk_percent: float
     bingx_min_usdt_step: float
+    bingx_max_notional_usdt: float
     dry_run: bool
     auto_trade: bool
     timezone: ZoneInfo
@@ -85,9 +89,11 @@ class Settings:
             bingx_api_key=os.getenv("BINGX_API_KEY"),
             bingx_secret_key=os.getenv("BINGX_SECRET_KEY"),
             bingx_symbol=os.getenv("BINGX_SYMBOL", "NASDAQ100-USDT"),
-            bingx_initial_capital=float(os.getenv("BINGX_INITIAL_CAPITAL", "100")),
             bingx_risk_percent=float(os.getenv("BINGX_RISK_PERCENT", "5.0")),
             bingx_min_usdt_step=float(os.getenv("BINGX_MIN_USDT_STEP", "0.01")),
+            bingx_max_notional_usdt=float(
+                os.getenv("BINGX_MAX_NOTIONAL_USDT", "1000")
+            ),
             dry_run=_bool_env("DRY_RUN", True),
             auto_trade=_bool_env("AUTO_TRADE", False),
             timezone=ZoneInfo(os.getenv("MARKET_TIMEZONE", "America/New_York")),

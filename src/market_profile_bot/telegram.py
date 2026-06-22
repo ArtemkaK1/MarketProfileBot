@@ -104,6 +104,12 @@ class TelegramNotifier:
             f"{result.detail}{order}"
         )
 
+    def execution_failed(self, alert: TradingViewAlert, detail: str) -> None:
+        self.send(
+            f"{format_signal_message(alert)}\n\n"
+            f"⚠️ Order not placed\n{detail}"
+        )
+
     def account_state(self, state: BingXAccountState, *, chat_id: str | None = None) -> None:
         self.send(format_account_state_message(state), chat_id=chat_id)
 

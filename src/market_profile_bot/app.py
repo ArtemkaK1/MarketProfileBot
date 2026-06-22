@@ -102,7 +102,12 @@ def create_app() -> FastAPI:
             notifier.signal_rejected(alert, reason)
             return {"status": "rejected", "reason": reason}
 
-        result = executor.execute(alert)
+        try:
+            result = executor.execute(alert)
+        except RuntimeError as exc:
+            logger.exception("BingX execution failed for alert %s", alert.id)
+            notifier.execution_failed(alert, str(exc))
+            return {"status": "error", "reason": str(exc), "id": alert.id}
         notifier.execution_result(alert, result)
         return {"status": result.status, "detail": result.detail, "order_id": result.order_id}
 
