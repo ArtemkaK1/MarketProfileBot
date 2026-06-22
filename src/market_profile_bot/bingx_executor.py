@@ -58,11 +58,14 @@ class BingXExecutor:
             return ExecutionResult("ignored", "IB_READY does not open a position")
 
         self._validate_execution_settings()
-        sizing = self._calculate_trade_sizing(alert, self._fetch_balance())
+        execution_alert = adjust_trade_levels(
+            alert, self.settings.bingx_sl_tp_offset_points
+        )
+        sizing = self._calculate_trade_sizing(execution_alert, self._fetch_balance())
         api_symbol = self._resolve_symbol()
-        position_side = self._position_side(alert.direction)
+        position_side = self._position_side(execution_alert.direction)
         params = self._order_params(
-            alert,
+            execution_alert,
             sizing.quote_order_qty,
             symbol=api_symbol,
             position_side=position_side,
@@ -77,11 +80,11 @@ class BingXExecutor:
             return ExecutionResult(
                 "dry_run",
                 (
-                    f"BingX test order accepted · {alert.direction} "
+                    f"BingX test order accepted · {execution_alert.direction} "
                     f"{self.settings.bingx_symbol} · balance={_number_text(sizing.balance)} USDT · "
                     f"risk_target={_number_text(sizing.risk_amount)} USDT · "
                     f"{BINGX_SIZE_FIELD}={_number_text(sizing.quote_order_qty)} USDT · "
-                    f"sl={alert.sl} · tp={alert.tp}"
+                    f"sl={execution_alert.sl} · tp={execution_alert.tp}"
                 ),
             )
 
@@ -142,6 +145,8 @@ class BingXExecutor:
             missing.append("BINGX_MIN_USDT_STEP must be > 0")
         if self.settings.bingx_max_notional_usdt <= 0:
             missing.append("BINGX_MAX_NOTIONAL_USDT must be > 0")
+        if self.settings.bingx_sl_tp_offset_points < 0:
+            missing.append("BINGX_SL_TP_OFFSET_POINTS must be >= 0")
         if missing:
             raise RuntimeError("Missing BingX configuration: " + ", ".join(missing))
 
@@ -284,7 +289,11 @@ class BingXExecutor:
         )
 
     def _public_request(self, path: str) -> dict:
-        req = request.Request(f"{BINGX_BASE_URL}{path}", method="GET")
+        req = request.Request(
+            f"{BINGX_BASE_URL}{path}",
+            headers={"X-SOURCE-KEY": "BX-AI-SKILL"},
+            method="GET",
+        )
         try:
             with request.urlopen(req, timeout=15) as response:
                 payload = json.loads(response.read().decode("utf-8"))
@@ -340,14 +349,25 @@ class BingXExecutor:
     def _signed_request(self, method: str, path: str, params: dict) -> dict:
         if not self.settings.bingx_secret_key or not self.settings.bingx_api_key:
             raise RuntimeError("BingX API keys are required")
-        query = _query_string(params)
+        canonical = _query_string(params)
         signature = hmac.new(
             self.settings.bingx_secret_key.encode("utf-8"),
-            query.encode("utf-8"),
+            canonical.encode("utf-8"),
             hashlib.sha256,
         ).hexdigest()
-        url = f"{BINGX_BASE_URL}{path}?{query}&signature={signature}"
-        req = request.Request(url, headers={"X-BX-APIKEY": self.settings.bingx_api_key}, method=method)
+        headers = {
+            "X-BX-APIKEY": self.settings.bingx_api_key,
+            "X-SOURCE-KEY": "BX-AI-SKILL",
+        }
+        body = None
+        if method == "POST":
+            url = f"{BINGX_BASE_URL}{path}"
+            body = f"{canonical}&signature={signature}".encode("utf-8")
+            headers["Content-Type"] = "application/x-www-form-urlencoded"
+        else:
+            query = _request_query_string(params)
+            url = f"{BINGX_BASE_URL}{path}?{query}&signature={signature}"
+        req = request.Request(url, data=body, headers=headers, method=method)
         try:
             with request.urlopen(req, timeout=15) as response:
                 response_body = response.read().decode("utf-8")
@@ -397,7 +417,17 @@ class BingXExecutor:
 
 
 def _query_string(params: dict) -> str:
-    return parse.urlencode(sorted(params.items()))
+    return "&".join(f"{key}={params[key]}" for key in sorted(params))
+
+
+def _request_query_string(params: dict) -> str:
+    pairs = []
+    for key in sorted(params):
+        value = str(params[key])
+        if "[" in value or "{" in value:
+            value = parse.quote(value, safe="")
+        pairs.append(f"{key}={value}")
+    return "&".join(pairs)
 
 
 def _number_text(value: float | Decimal) -> str:
@@ -438,3 +468,20 @@ def _client_order_id(alert_id: str, *, test: bool = False) -> str:
     prefix = "mpbt" if test else "mpb"
     digest = hashlib.sha256(alert_id.encode("utf-8")).hexdigest()
     return f"{prefix}-{digest[: 40 - len(prefix) - 1]}"
+
+
+def adjust_trade_levels(
+    alert: TradingViewAlert, offset_points: float
+) -> TradingViewAlert:
+    if alert.direction == Direction.NONE or offset_points == 0:
+        return alert
+    if alert.sl is None or alert.tp is None:
+        raise RuntimeError("Cannot adjust BingX levels: alert sl or tp is missing")
+    offset = float(offset_points)
+    if alert.direction == Direction.LONG:
+        sl = alert.sl - offset
+        tp = alert.tp + offset
+    else:
+        sl = alert.sl + offset
+        tp = alert.tp - offset
+    return alert.model_copy(update={"sl": sl, "tp": tp})

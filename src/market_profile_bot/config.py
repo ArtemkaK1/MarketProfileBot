@@ -60,6 +60,7 @@ class Settings:
     bingx_risk_percent: float
     bingx_min_usdt_step: float
     bingx_max_notional_usdt: float
+    bingx_sl_tp_offset_points: float
     dry_run: bool
     auto_trade: bool
     timezone: ZoneInfo
@@ -93,6 +94,9 @@ class Settings:
             bingx_min_usdt_step=float(os.getenv("BINGX_MIN_USDT_STEP", "0.01")),
             bingx_max_notional_usdt=float(
                 os.getenv("BINGX_MAX_NOTIONAL_USDT", "1000")
+            ),
+            bingx_sl_tp_offset_points=float(
+                os.getenv("BINGX_SL_TP_OFFSET_POINTS", "2.5")
             ),
             dry_run=_bool_env("DRY_RUN", True),
             auto_trade=_bool_env("AUTO_TRADE", False),

@@ -29,13 +29,15 @@ extendLevels = input.bool(true, "Extend levels right")
 tz = timezoneInput
 ibSession = ibSessionInput + ":23456"
 tradeSession = tradeSessionInput + ":23456"
+ibEndHour = int(str.tonumber(str.substring(ibSessionInput, 5, 7)))
+ibEndMinute = int(str.tonumber(str.substring(ibSessionInput, 7, 9)))
 
 inIB = not na(time(timeframe.period, ibSession, tz))
 inTrade = not na(time(timeframe.period, tradeSession, tz))
 flat = strategy.position_size == 0
 newDay = ta.change(time("D", "0000-2359:1234567", tz)) != 0
 ibStarted = inIB and not inIB[1]
-ibFinished = not inIB and inIB[1]
+ibFinished = inIB and hour(time_close, tz) == ibEndHour and minute(time_close, tz) == ibEndMinute
 
 emaFast = request.security(syminfo.tickerid, emaTimeframe, ta.ema(close, emaFastLength), barmerge.gaps_off, barmerge.lookahead_off)
 emaSlow = request.security(syminfo.tickerid, emaTimeframe, ta.ema(close, emaSlowLength), barmerge.gaps_off, barmerge.lookahead_off)
@@ -54,16 +56,18 @@ jsonNumber(float value) =>
     str.tostring(value, format.mintick)
 
 alertId(string alertType, string direction) =>
-    str.replace_all(syminfo.tickerid, ":", "_") + "-" + str.format_time(time, "yyyyMMdd-HHmm", tz) + "-" + alertType + "-" + direction
+    payloadTime = alertType == "IB_READY" ? time_close : time
+    str.replace_all(syminfo.tickerid, ":", "_") + "-" + str.format_time(payloadTime, "yyyyMMdd-HHmm", tz) + "-" + alertType + "-" + direction
 
 jsonPayload(string alertType, string direction, float entryPrice, float ibH, float ibL, float ibM, float slPrice, float tpPrice) =>
     hasTradeLevels = alertType != "IB_READY"
+    payloadTime = alertType == "IB_READY" ? time_close : time
     payload = "{"
     payload += "\"secret\":" + jsonString(webhookSecret)
     payload += ",\"id\":" + jsonString(alertId(alertType, direction))
     payload += ",\"type\":" + jsonString(alertType)
     payload += ",\"symbol\":" + jsonString(syminfo.ticker)
-    payload += ",\"time\":" + jsonString(str.format_time(time, "yyyy-MM-dd'T'HH:mm:ssXXX", tz))
+    payload += ",\"time\":" + jsonString(str.format_time(payloadTime, "yyyy-MM-dd'T'HH:mm:ssXXX", tz))
     payload += ",\"direction\":" + jsonString(direction)
     payload += ",\"price\":" + jsonNumber(entryPrice)
     payload += ",\"ib_high\":" + jsonNumber(ibH)

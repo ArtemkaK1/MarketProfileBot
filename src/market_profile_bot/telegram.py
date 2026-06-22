@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from urllib import parse, request
 
 from .config import Settings
-from .bingx_executor import BingXAccountState
+from .bingx_executor import BingXAccountState, adjust_trade_levels
 from .execution import ExecutionResult
 from .models import AlertType, Direction, TradingViewAlert
 
@@ -18,6 +18,8 @@ class TelegramNotifier:
     bot_token: str | None
     chat_id: str | None
     enabled: bool = False
+    risk_percent: float | None = None
+    sl_tp_offset_points: float = 0.0
     timeout: float = 5.0
 
     @classmethod
@@ -26,6 +28,8 @@ class TelegramNotifier:
             bot_token=settings.telegram_bot_token,
             chat_id=settings.telegram_chat_id,
             enabled=settings.telegram_enabled,
+            risk_percent=settings.bingx_risk_percent,
+            sl_tp_offset_points=settings.bingx_sl_tp_offset_points,
         )
 
     @property
@@ -78,7 +82,13 @@ class TelegramNotifier:
         return False
 
     def signal_received(self, alert: TradingViewAlert) -> None:
-        self.send(format_signal_message(alert))
+        self.send(
+            format_signal_message(
+                alert,
+                risk_percent=self.risk_percent,
+                sl_tp_offset_points=self.sl_tp_offset_points,
+            )
+        )
 
     def bot_started(self, *, backend: str, dry_run: bool, auto_trade: bool) -> None:
         self.send(
@@ -90,23 +100,29 @@ class TelegramNotifier:
         )
 
     def signal_rejected(self, alert: TradingViewAlert, reason: str) -> None:
-        self.send(f"{format_signal_message(alert)}\n\n❌ Rejected\n{_friendly_reason(reason)}")
+        self.send(
+            f"{format_signal_message(alert, risk_percent=self.risk_percent, sl_tp_offset_points=self.sl_tp_offset_points)}"
+            f"\n\n❌ Rejected\n{_friendly_reason(reason)}"
+        )
 
     def signal_skipped(self, alert: TradingViewAlert, reason: str) -> None:
-        self.send(f"{format_signal_message(alert)}\n\n⏸ Skipped\n{_friendly_reason(reason)}")
+        self.send(
+            f"{format_signal_message(alert, risk_percent=self.risk_percent, sl_tp_offset_points=self.sl_tp_offset_points)}"
+            f"\n\n⏸ Skipped\n{_friendly_reason(reason)}"
+        )
 
     def execution_result(self, alert: TradingViewAlert, result: ExecutionResult) -> None:
         order = f"\nOrder ID: {result.order_id}" if result.order_id is not None else ""
         status_icon = "✅" if result.status == "filled" else "🧪" if result.status == "dry_run" else "ℹ️"
         self.send(
-            f"{format_signal_message(alert)}\n\n"
+            f"{format_signal_message(alert, risk_percent=self.risk_percent, sl_tp_offset_points=self.sl_tp_offset_points)}\n\n"
             f"{status_icon} {_humanize(result.status)}\n"
             f"{result.detail}{order}"
         )
 
     def execution_failed(self, alert: TradingViewAlert, detail: str) -> None:
         self.send(
-            f"{format_signal_message(alert)}\n\n"
+            f"{format_signal_message(alert, risk_percent=self.risk_percent, sl_tp_offset_points=self.sl_tp_offset_points)}\n\n"
             f"⚠️ Order not placed\n{detail}"
         )
 
@@ -117,7 +133,12 @@ class TelegramNotifier:
         self.send(f"⚠️ Could not load BingX account state\n\n{detail}", chat_id=chat_id)
 
 
-def format_signal_message(alert: TradingViewAlert) -> str:
+def format_signal_message(
+    alert: TradingViewAlert,
+    *,
+    risk_percent: float | None = None,
+    sl_tp_offset_points: float = 0.0,
+) -> str:
     local_time = alert.time.isoformat()
     if alert.type == AlertType.IB_READY:
         return (
@@ -131,14 +152,16 @@ def format_signal_message(alert: TradingViewAlert) -> str:
         )
 
     direction = "LONG" if alert.direction == Direction.LONG else "SHORT"
+    effective_risk = alert.risk_percent if risk_percent is None else risk_percent
+    effective_alert = adjust_trade_levels(alert, sl_tp_offset_points)
     return (
         f"🔔 {alert.type.value.title()} signal · {direction}\n\n"
         f"Symbol: {alert.symbol}\n"
         f"Time: {local_time}\n"
         f"Entry: {alert.price}\n"
-        f"Stop loss: {alert.sl}\n"
-        f"Take profit: {alert.tp}\n"
-        f"Risk: {alert.risk_percent}% · R:R {alert.rr}\n\n"
+        f"Stop loss: {effective_alert.sl}\n"
+        f"Take profit: {effective_alert.tp}\n"
+        f"Bot risk: {_number_text(effective_risk)}% · R:R {alert.rr}\n\n"
         f"IB range: {alert.ib_low} — {alert.ib_high}\n"
         f"IB midpoint: {alert.ib_mid}\n\n"
         f"Signal ID: {alert.id}"
@@ -175,6 +198,10 @@ def format_account_state_message(state: BingXAccountState) -> str:
 
 def _decimal_text(value) -> str:
     return format(value.normalize(), "f")
+
+
+def _number_text(value: float) -> str:
+    return format(value, "g")
 
 
 def _humanize(value: str) -> str:

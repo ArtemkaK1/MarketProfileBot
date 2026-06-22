@@ -1,3 +1,5 @@
+import hashlib
+import hmac
 from datetime import datetime, time
 from decimal import Decimal
 from zoneinfo import ZoneInfo
@@ -9,6 +11,7 @@ from market_profile_bot.bingx_executor import (
     _client_order_id,
     _extract_order_id,
     _query_string,
+    adjust_trade_levels,
 )
 from market_profile_bot.config import Settings
 from market_profile_bot.models import TradingViewAlert
@@ -23,6 +26,7 @@ def settings(**overrides) -> Settings:
         "bingx_risk_percent": 5.0,
         "bingx_min_usdt_step": 0.01,
         "bingx_max_notional_usdt": 10000.0,
+        "bingx_sl_tp_offset_points": 0.0,
         "dry_run": True,
         "auto_trade": False,
         "timezone": ZoneInfo("America/New_York"),
@@ -152,6 +156,24 @@ def test_bingx_notional_rejects_value_above_hard_limit():
         executor._calculate_trade_sizing(alert(), Decimal("100"))
 
 
+def test_adjust_trade_levels_moves_long_sl_and_tp_outward():
+    adjusted = adjust_trade_levels(alert(), 2.5)
+
+    assert adjusted.sl == 19797.5
+    assert adjusted.tp == 20202.5
+
+
+def test_adjust_trade_levels_moves_short_sl_and_tp_outward():
+    short_alert = alert().model_copy(
+        update={"direction": "SHORT", "sl": 20200.0, "tp": 19800.0}
+    )
+
+    adjusted = adjust_trade_levels(short_alert, 2.5)
+
+    assert adjusted.sl == 20202.5
+    assert adjusted.tp == 19797.5
+
+
 def test_bingx_order_params_map_alert_to_market_order():
     executor = BingXExecutor(settings())
 
@@ -176,6 +198,46 @@ def test_bingx_order_params_map_alert_to_market_order():
 
 def test_query_string_sorts_params_for_signature():
     assert _query_string({"b": 2, "a": 1}) == "a=1&b=2"
+
+
+def test_signed_post_uses_raw_canonical_body_for_attached_sl_tp(monkeypatch):
+    executor = BingXExecutor(
+        settings(bingx_api_key="key", bingx_secret_key="secret")
+    )
+    params = {
+        "symbol": "BTC-USDT",
+        "stopLoss": '{"type":"STOP_MARKET","stopPrice":100}',
+        "timestamp": 123,
+    }
+    captured = []
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def read(self):
+            return b'{"code":0,"data":{}}'
+
+    def fake_urlopen(req, timeout):
+        captured.append(req)
+        return Response()
+
+    monkeypatch.setattr("market_profile_bot.bingx_executor.request.urlopen", fake_urlopen)
+
+    executor._signed_request("POST", "/order/test", params)
+
+    canonical = (
+        'stopLoss={"type":"STOP_MARKET","stopPrice":100}'
+        "&symbol=BTC-USDT&timestamp=123"
+    )
+    signature = hmac.new(b"secret", canonical.encode(), hashlib.sha256).hexdigest()
+    assert captured[0].full_url == "https://open-api.bingx.com/order/test"
+    assert captured[0].data.decode() == f"{canonical}&signature={signature}"
+    assert captured[0].headers["Content-type"] == "application/x-www-form-urlencoded"
+    assert captured[0].headers["X-source-key"] == "BX-AI-SKILL"
 
 
 def test_extract_order_id_accepts_common_bingx_response_shape():

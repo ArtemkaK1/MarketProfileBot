@@ -72,6 +72,7 @@ BINGX_SYMBOL=NASDAQ100-USDT
 BINGX_RISK_PERCENT=5.0
 BINGX_MIN_USDT_STEP=0.01
 BINGX_MAX_NOTIONAL_USDT=1000
+BINGX_SL_TP_OFFSET_POINTS=2.5
 
 DRY_RUN=true
 AUTO_TRADE=false
@@ -117,6 +118,7 @@ BINGX_SYMBOL=NASDAQ100-USDT
 BINGX_RISK_PERCENT=5.0
 BINGX_MIN_USDT_STEP=0.01
 BINGX_MAX_NOTIONAL_USDT=1000
+BINGX_SL_TP_OFFSET_POINTS=2.5
 ```
 
 `BINGX_SYMBOL` may use `NASDAQ100`, the BingX display name `NASDAQ100-USDT`, or the internal
@@ -147,6 +149,10 @@ usdt_notional = 5500
 it when calculated notional exceeds this value. Leverage changes required margin, but does
 not change the target loss between entry and SL. Market slippage means realized loss cannot
 be guaranteed to equal the target exactly.
+
+`BINGX_SL_TP_OFFSET_POINTS` moves both protective levels farther from entry before sizing and
+submission. With the default `2.5`, long orders use `SL - 2.5` and `TP + 2.5`; short orders
+use `SL + 2.5` and `TP - 2.5`. Risk sizing uses the adjusted SL distance.
 
 Every order is first submitted to BingX's non-executing test-order endpoint with the same
 symbol, direction, sizing, and SL/TP. With `DRY_RUN=true`, the bot stops after BingX accepts
@@ -245,6 +251,7 @@ BINGX_SYMBOL=NASDAQ100-USDT
 BINGX_RISK_PERCENT=5.0
 BINGX_MIN_USDT_STEP=0.01
 BINGX_MAX_NOTIONAL_USDT=1000
+BINGX_SL_TP_OFFSET_POINTS=2.5
 DRY_RUN=true
 AUTO_TRADE=false
 MARKET_TIMEZONE=America/New_York
@@ -307,5 +314,5 @@ Example `RAID` alert:
   order history so the guard survives Railway restarts.
 - The server-side entry cutoff defaults to `16:00` in `America/New_York`.
 - Trade alerts must include `sl` and `tp`.
-- BingX execution requires `BINGX_API_KEY`, `BINGX_SECRET_KEY`, `BINGX_SYMBOL`, `BINGX_RISK_PERCENT`, `BINGX_MIN_USDT_STEP`, and `BINGX_MAX_NOTIONAL_USDT`.
+- BingX execution requires `BINGX_API_KEY`, `BINGX_SECRET_KEY`, `BINGX_SYMBOL`, `BINGX_RISK_PERCENT`, `BINGX_MIN_USDT_STEP`, `BINGX_MAX_NOTIONAL_USDT`, and `BINGX_SL_TP_OFFSET_POINTS`.
 - Telegram notifications are disabled unless `TELEGRAM_ENABLED=true`, `TELEGRAM_BOT_TOKEN`, and `TELEGRAM_CHAT_ID` are configured.

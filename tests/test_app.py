@@ -19,6 +19,7 @@ def settings() -> Settings:
         bingx_risk_percent=5,
         bingx_min_usdt_step=0.01,
         bingx_max_notional_usdt=1000,
+        bingx_sl_tp_offset_points=2.5,
         dry_run=True,
         auto_trade=False,
         timezone=ZoneInfo("America/New_York"),

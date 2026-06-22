@@ -49,7 +49,25 @@ def test_format_trade_signal_message_contains_order_context():
     assert "Symbol: NAS100" in message
     assert "Stop loss: 18850.0" in message
     assert "Take profit: 19150.0" in message
-    assert "Risk: 1.0%" in message
+    assert "Bot risk: 1%" in message
+
+
+def test_format_trade_signal_uses_configured_bot_risk():
+    alert = TradingViewAlert.model_validate(payload(risk_percent=5.0))
+
+    message = format_signal_message(alert, risk_percent=10.0)
+
+    assert "Bot risk: 10%" in message
+    assert "Bot risk: 5%" not in message
+
+
+def test_format_trade_signal_shows_adjusted_long_levels():
+    alert = TradingViewAlert.model_validate(payload())
+
+    message = format_signal_message(alert, sl_tp_offset_points=2.5)
+
+    assert "Stop loss: 18847.5" in message
+    assert "Take profit: 19152.5" in message
 
 
 def test_format_ib_ready_message_contains_ib_levels():
