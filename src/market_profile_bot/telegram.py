@@ -6,11 +6,19 @@ from dataclasses import dataclass
 from urllib import parse, request
 
 from .config import Settings
-from .bingx_executor import BingXAccountState, adjust_trade_levels
 from .execution import ExecutionResult
 from .models import AlertType, Direction, TradingViewAlert
+from .trading import AccountState, adjust_trade_levels
 
 logger = logging.getLogger(__name__)
+
+
+TELEGRAM_COMMANDS = [
+    ("vanta_state", "VantaTrading account state"),
+    ("vanta_test_position", "Dry-run Vanta position: LONG|SHORT ENTRY SL TP"),
+    ("bingx_state", "BingX account state"),
+    ("bingx_test_position", "Dry-run BingX position: LONG|SHORT ENTRY SL TP"),
+]
 
 
 @dataclass(frozen=True)
@@ -28,8 +36,8 @@ class TelegramNotifier:
             bot_token=settings.telegram_bot_token,
             chat_id=settings.telegram_chat_id,
             enabled=settings.telegram_enabled,
-            risk_percent=settings.bingx_risk_percent,
-            sl_tp_offset_points=settings.bingx_sl_tp_offset_points,
+            risk_percent=settings.risk_percent,
+            sl_tp_offset_points=settings.sl_tp_offset_points,
         )
 
     @property
@@ -81,6 +89,33 @@ class TelegramNotifier:
             logger.exception("Telegram webhook registration failed")
         return False
 
+    def set_commands(self) -> bool:
+        if not self.configured:
+            return False
+
+        url = f"https://api.telegram.org/bot{self.bot_token}/setMyCommands"
+        body = parse.urlencode(
+            {
+                "commands": json.dumps(
+                    [
+                        {"command": command, "description": description}
+                        for command, description in TELEGRAM_COMMANDS
+                    ]
+                ),
+            }
+        ).encode()
+        req = request.Request(url, data=body, method="POST")
+        try:
+            with request.urlopen(req, timeout=self.timeout) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+                if payload.get("ok"):
+                    logger.info("Telegram commands registered")
+                    return True
+                logger.error("Telegram setMyCommands failed: %s", payload)
+        except Exception:
+            logger.exception("Telegram command registration failed")
+        return False
+
     def signal_received(self, alert: TradingViewAlert) -> None:
         self.send(
             format_signal_message(
@@ -96,7 +131,7 @@ class TelegramNotifier:
             f"Exchange: {backend.title()}\n"
             f"Execution: {'Simulation' if dry_run else 'Live'}\n"
             f"Auto-trading: {_on_off(auto_trade)}\n\n"
-            "Use /state to check the futures account."
+            "Commands: /vanta_state, /vanta_test_position, /bingx_state, /bingx_test_position"
         )
 
     def signal_rejected(self, alert: TradingViewAlert, reason: str) -> None:
@@ -126,11 +161,17 @@ class TelegramNotifier:
             f"⚠️ Order not placed\n{detail}"
         )
 
-    def account_state(self, state: BingXAccountState, *, chat_id: str | None = None) -> None:
+    def account_state(self, state: AccountState, *, chat_id: str | None = None) -> None:
         self.send(format_account_state_message(state), chat_id=chat_id)
 
-    def command_error(self, detail: str, *, chat_id: str | None = None) -> None:
-        self.send(f"⚠️ Could not load BingX account state\n\n{detail}", chat_id=chat_id)
+    def command_error(
+        self,
+        detail: str,
+        *,
+        chat_id: str | None = None,
+        title: str = "Could not load account state",
+    ) -> None:
+        self.send(f"⚠️ {title}\n\n{detail}", chat_id=chat_id)
 
 
 def format_signal_message(
@@ -168,31 +209,41 @@ def format_signal_message(
     )
 
 
-def format_account_state_message(state: BingXAccountState) -> str:
-    leverage = (
-        f"{_decimal_text(state.long_leverage)}x"
-        if state.long_leverage == state.short_leverage
-        else (
-            f"Long {_decimal_text(state.long_leverage)}x · "
-            f"Short {_decimal_text(state.short_leverage)}x"
-        )
-    )
+def format_account_state_message(state: AccountState) -> str:
     available = (
-        f"\nAvailable margin: {_decimal_text(state.available_margin)} USDT"
+        f"\nAvailable margin: {_decimal_text(state.available_margin)} {state.currency}"
         if state.available_margin is not None
         else ""
     )
-    margin_type = {
-        "CROSSED": "Cross",
-        "CROSS": "Cross",
-        "ISOLATED": "Isolated",
-    }.get(state.margin_type.upper(), _humanize(state.margin_type))
+    buying_power = (
+        f"\nBuying power: {_decimal_text(state.buying_power)} {state.currency}"
+        if state.buying_power is not None
+        else ""
+    )
+    leverage = (
+        f"\nLeverage: {_decimal_text(state.leverage)}x"
+        if state.leverage is not None
+        else ""
+    )
+    if state.long_leverage is not None and state.short_leverage is not None:
+        leverage = (
+            f"\nLeverage: {_decimal_text(state.long_leverage)}x"
+            if state.long_leverage == state.short_leverage
+            else (
+                f"\nLeverage: Long {_decimal_text(state.long_leverage)}x · "
+                f"Short {_decimal_text(state.short_leverage)}x"
+            )
+        )
+    margin = (
+        f"\nMargin: {_margin_text(state.margin_type)}"
+        if state.margin_type is not None
+        else ""
+    )
     return (
-        "💰 BingX USDT Futures\n\n"
-        f"Balance: {_decimal_text(state.balance)} USDT{available}\n"
-        f"Symbol: {state.symbol}\n"
-        f"Margin: {margin_type}\n"
-        f"Leverage: {leverage}"
+        f"💰 {state.platform}\n\n"
+        f"Balance: {_decimal_text(state.balance)} {state.currency}"
+        f"{available}{buying_power}{margin}{leverage}\n"
+        f"Symbol: {state.symbol}"
     )
 
 
@@ -206,6 +257,14 @@ def _number_text(value: float) -> str:
 
 def _humanize(value: str) -> str:
     return value.replace("_", " ").strip().title()
+
+
+def _margin_text(value: str) -> str:
+    return {
+        "CROSSED": "Cross",
+        "CROSS": "Cross",
+        "ISOLATED": "Isolated",
+    }.get(value.upper(), _humanize(value))
 
 
 def _on_off(enabled: bool) -> str:

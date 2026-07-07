@@ -1,13 +1,13 @@
 from datetime import datetime
 from decimal import Decimal
 
-from market_profile_bot.bingx_executor import BingXAccountState
 from market_profile_bot.models import TradingViewAlert
 from market_profile_bot.telegram import (
     TelegramNotifier,
     format_account_state_message,
     format_signal_message,
 )
+from market_profile_bot.trading import AccountState
 from market_profile_bot import telegram
 
 
@@ -90,30 +90,35 @@ def test_bot_started_message_contains_runtime_flags(monkeypatch):
         TelegramNotifier, "send", lambda _self, text, **kwargs: sent.append(text)
     )
 
-    notifier.bot_started(backend="bingx", dry_run=True, auto_trade=False)
+    notifier.bot_started(backend="vanta_trading", dry_run=True, auto_trade=False)
 
     assert "🟢 Bot started" in sent[0]
     assert "Execution: Simulation" in sent[0]
     assert "Auto-trading: Off" in sent[0]
-    assert "/state" in sent[0]
+    assert "/vanta_state" in sent[0]
+    assert "/vanta_test_position" in sent[0]
+    assert "/bingx_state" in sent[0]
+    assert "/bingx_test_position" in sent[0]
 
 
-def test_format_account_state_message_shows_separate_long_short_leverage():
-    state = BingXAccountState(
-        symbol="NASDAQ100-USDT",
+def test_format_account_state_message_shows_buying_power_and_leverage():
+    state = AccountState(
+        platform="VantaTrading",
+        symbol="XYZ100/USDC",
         balance=Decimal("123.4500"),
+        buying_power=Decimal("185.175"),
         available_margin=Decimal("100.00"),
-        margin_type="CROSSED",
-        long_leverage=Decimal("10"),
-        short_leverage=Decimal("5"),
+        leverage=Decimal("1.5"),
+        currency="USDC",
     )
 
     message = format_account_state_message(state)
 
-    assert "Balance: 123.45 USDT" in message
-    assert "Available margin: 100 USDT" in message
-    assert "Margin: Cross" in message
-    assert "Leverage: Long 10x · Short 5x" in message
+    assert "VantaTrading" in message
+    assert "Balance: 123.45 USDC" in message
+    assert "Available margin: 100 USDC" in message
+    assert "Buying power: 185.175 USDC" in message
+    assert "Leverage: 1.5x" in message
 
 
 def test_set_webhook_registers_allowed_message_updates(monkeypatch):
@@ -140,3 +145,32 @@ def test_set_webhook_registers_allowed_message_updates(monkeypatch):
     assert captured[0][0].full_url.endswith("/bottoken/setWebhook")
     assert b"https%3A%2F%2Fexample.com%2Ftelegram%2Fwebhook" in captured[0][0].data
     assert b"allowed_updates" in captured[0][0].data
+
+
+def test_set_commands_registers_platform_specific_commands(monkeypatch):
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def read(self):
+            return b'{"ok": true, "result": true}'
+
+    captured = []
+
+    def fake_urlopen(req, timeout):
+        captured.append((req, timeout))
+        return Response()
+
+    monkeypatch.setattr(telegram.request, "urlopen", fake_urlopen)
+    notifier = TelegramNotifier(bot_token="token", chat_id="123", enabled=True)
+
+    assert notifier.set_commands()
+    assert captured[0][0].full_url.endswith("/bottoken/setMyCommands")
+    body = captured[0][0].data.decode()
+    assert "vanta_state" in body
+    assert "vanta_test_position" in body
+    assert "bingx_state" in body
+    assert "bingx_test_position" in body

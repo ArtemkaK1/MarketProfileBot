@@ -3,7 +3,7 @@
 Starter project for a two-part NASDAQ trading workflow:
 
 1. TradingView Pine Script calculates the Initial Balance from 08:00-09:30 New York time by default and currently backtests extension/raid entries.
-2. Python FastAPI webhook receives TradingView JSON alerts, sends Telegram notifications, and opens BingX positions.
+2. Python FastAPI webhook receives TradingView JSON alerts, sends Telegram notifications, and opens VantaTrading positions.
 
 Current strategy defaults:
 
@@ -31,7 +31,7 @@ An MT5 Expert Advisor port is available at `mql5/NasdaqPreNyseIBRaidExtension.mq
 
 ```text
 tradingview/nasdaq_pre_nyse_ib_raid_extension.pine  Pine strategy and alerts
-src/market_profile_bot/                              Python webhook, Telegram notifier, and BingX executor
+src/market_profile_bot/                              Python webhook, Telegram notifier, and platform executors
 tests/                                               Unit tests for alert/risk logic
 ```
 
@@ -66,13 +66,18 @@ Create a local `.env` file:
 ```bash
 WEBHOOK_SECRET=change-me
 
-BINGX_API_KEY=
-BINGX_SECRET_KEY=
-BINGX_SYMBOL=NASDAQ100-USDT
-BINGX_RISK_PERCENT=5.0
-BINGX_MIN_USDT_STEP=0.01
-BINGX_MAX_NOTIONAL_USDT=1000
-BINGX_SL_TP_OFFSET_POINTS=2.5
+TRADING_PLATFORM=vanta_trading
+VANTA_KEY_ID=
+VANTA_SECRET=
+VANTA_ACCOUNT_ID=bba0bc1c-7cb1-494c-b32b-fa64277e1cfb
+VANTA_BASE_URL=https://app.vantatrading.io
+VANTA_SYMBOL=XYZ100/USDC
+VANTA_ACCOUNT_BALANCE=5000
+VANTA_LEVERAGE=1.5
+RISK_PERCENT=1.0
+MIN_QUOTE_STEP=0.01
+MAX_NOTIONAL_USDC=
+SL_TP_OFFSET_POINTS=0
 
 DRY_RUN=true
 AUTO_TRADE=false
@@ -86,8 +91,30 @@ TELEGRAM_WEBHOOK_URL=
 
 ### Telegram commands
 
-The bot supports `/state`, which reports the current BingX USDT perpetual-futures balance,
-available margin, margin mode, and long/short leverage for `BINGX_SYMBOL`.
+The bot supports these Telegram commands:
+
+```text
+/vanta_state
+/vanta_test_position LONG|SHORT ENTRY SL TP
+/bingx_state
+/bingx_test_position LONG|SHORT ENTRY SL TP
+```
+
+`/vanta_state` reports the current VantaTrading balance, buying power, available margin,
+leverage, and configured symbol. `/bingx_state` reports the current BingX futures balance,
+available margin, margin mode, and long/short leverage.
+
+`/vanta_test_position` and `/bingx_test_position` build synthetic trade alerts and force
+dry-run execution, even when the bot is configured for live trading. They read account
+state, calculate the platform order size, and return the prepared order summary without
+submitting a live order.
+
+Example:
+
+```text
+/vanta_test_position LONG 20000 19900 20100
+/bingx_test_position SHORT 20000 20100 19900
+```
 
 The bot registers its Telegram webhook automatically at startup. On Railway it uses
 `RAILWAY_PUBLIC_DOMAIN`. Outside Railway, set the public base URL explicitly:
@@ -96,8 +123,8 @@ The bot registers its Telegram webhook automatically at startup. On Railway it u
 TELEGRAM_WEBHOOK_URL=https://YOUR-DOMAIN
 ```
 
-Only commands from `TELEGRAM_CHAT_ID` are accepted. The BingX API key needs permission to
-read the futures account; trading permission is still required for live order execution.
+Only commands from `TELEGRAM_CHAT_ID` are accepted. The VantaTrading API key needs read
+permission for `/state`; trading permission is required for live order execution.
 
 Run locally:
 
@@ -105,13 +132,34 @@ Run locally:
 uvicorn market_profile_bot.app:create_app --factory --host 0.0.0.0 --port 8000
 ```
 
-Use `DRY_RUN=true` until you have verified payloads, symbol name, calculated USDT size, and broker execution.
+Use `DRY_RUN=true` until you have verified payloads, symbol name, calculated USDC size, and broker execution.
 
-## BingX Setup
+## VantaTrading Setup
 
-Create a BingX API key with trading permission and fill:
+Create a VantaTrading API key and fill:
 
 ```env
+VANTA_KEY_ID=
+VANTA_SECRET=
+VANTA_ACCOUNT_ID=bba0bc1c-7cb1-494c-b32b-fa64277e1cfb
+VANTA_SYMBOL=XYZ100/USDC
+RISK_PERCENT=1.0
+```
+
+`VANTA_SYMBOL` defaults to `XYZ100/USDC` and is sent to VantaTrading as the `trade_pair`.
+
+## Platform Selection
+
+`TRADING_PLATFORM` selects the execution backend. It defaults to `vanta_trading`.
+
+```env
+TRADING_PLATFORM=vanta_trading
+```
+
+To use BingX instead:
+
+```env
+TRADING_PLATFORM=bingx
 BINGX_API_KEY=
 BINGX_SECRET_KEY=
 BINGX_SYMBOL=NASDAQ100-USDT
@@ -121,47 +169,58 @@ BINGX_MAX_NOTIONAL_USDT=1000
 BINGX_SL_TP_OFFSET_POINTS=2.5
 ```
 
-`BINGX_SYMBOL` may use `NASDAQ100`, the BingX display name `NASDAQ100-USDT`, or the internal
-API symbol. The bot resolves it against BingX's live contracts list and uses the corresponding
-USDT contract symbol for account queries and orders.
+BingX execution remains isolated under `src/market_profile_bot/platforms/bingx`.
+It preserves the previous behavior: symbol resolution, test-order validation, one-way
+versus hedge position mode handling, open-position checks, same-day strategy-order checks,
+and `BINGX_MAX_NOTIONAL_USDT` rejection.
 
-The bot reads the live BingX USDT futures balance before every trade. It targets a loss at
-the stop equal to `BINGX_RISK_PERCENT` of that balance and sends the resulting USDT notional
-through BingX's `quoteOrderQty` field:
+The bot reads the VantaTrading account endpoint before every trade. If the account response
+does not expose balance, leverage, or buying power fields, the bot falls back to
+`VANTA_ACCOUNT_BALANCE` and `VANTA_LEVERAGE`. With the default `5000` balance and `1.5`
+leverage, buying power is `7500 USDC`.
+
+The bot targets a loss at the stop equal to `RISK_PERCENT` of balance and sends the resulting
+USDC notional as VantaTrading order `value`:
 
 ```text
-risk_amount = live_futures_balance * BINGX_RISK_PERCENT / 100
-raw_usdt_notional = risk_amount * entry_price / abs(entry_price - stop_loss)
-usdt_notional = raw_usdt_notional rounded down to BINGX_MIN_USDT_STEP
+risk_amount = account_balance * RISK_PERCENT / 100
+raw_usdc_notional = risk_amount * entry_price / abs(entry_price - stop_loss)
+usdc_notional = raw_usdc_notional rounded down to MIN_QUOTE_STEP
 ```
 
 Rounding is downward so sizing does not intentionally exceed the risk target. For example,
-with a `1100 USDT` balance, `5%` risk, `20000` entry, and `19800` SL:
+with a `5000 USDC` balance, `1%` risk, `20000` entry, and `19800` SL:
 
 ```text
-risk_amount = 55
+risk_amount = 50
 stop_distance = 200
-raw_usdt_notional = 55 * 20000 / 200 = 5500
-usdt_notional = 5500
+raw_usdc_notional = 50 * 20000 / 200 = 5000
+usdc_notional = 5000
 ```
 
-`BINGX_MAX_NOTIONAL_USDT` is a hard safety limit. The bot rejects an order rather than place
-it when calculated notional exceeds this value. Leverage changes required margin, but does
-not change the target loss between entry and SL. Market slippage means realized loss cannot
-be guaranteed to equal the target exactly.
+If the 1% risk target needs more notional than available buying power, the bot uses all
+available buying power instead of rejecting the trade. In that case the actual stop loss risk
+is lower than `RISK_PERCENT`. For example, with a `100` point stop:
 
-`BINGX_SL_TP_OFFSET_POINTS` moves both protective levels farther from entry before sizing and
-submission. With the default `2.5`, long orders use `SL - 2.5` and `TP + 2.5`; short orders
-use `SL + 2.5` and `TP - 2.5`. Risk sizing uses the adjusted SL distance.
+```text
+raw_usdc_notional = 50 * 20000 / 100 = 10000
+available_buying_power = 7500
+submitted_value = 7500
+actual_risk = 7500 * 100 / 20000 = 37.5
+```
 
-Every order is first submitted to BingX's non-executing test-order endpoint with the same
-symbol, direction, sizing, and SL/TP. With `DRY_RUN=true`, the bot stops after BingX accepts
-that test. To exercise this path from TradingView, use `AUTO_TRADE=true` together with
-`DRY_RUN=true`. The bot also detects one-way versus hedge position mode automatically,
-rejects stacking onto an existing position, assigns a deterministic BingX `clientOrderId`,
-and checks BingX order history to preserve the one-strategy-trade-per-day rule across restarts.
+`MAX_NOTIONAL_USDC`, when set, adds a stricter cap. Leverage changes required margin, but
+does not change the target loss between entry and SL. Market slippage means realized loss
+cannot be guaranteed to equal the target exactly.
 
-The BingX REST base URL, order endpoint, request size field, receive window, and SL/TP request shape are code defaults because they are implementation details, not deployment settings.
+`SL_TP_OFFSET_POINTS` moves both protective levels farther from entry before sizing. Long
+orders use `SL - offset` and `TP + offset`; short orders use `SL + offset` and `TP - offset`.
+Risk sizing uses the adjusted SL distance.
+
+With `DRY_RUN=true`, the bot calculates sizing and prepares the VantaTrading order body but
+does not submit `POST /api/v1/trading/orders`. To exercise this path from TradingView, use
+`AUTO_TRADE=true` together with `DRY_RUN=true`. In live mode, the bot checks open positions,
+then submits a market order to VantaTrading.
 
 ## Mac/Linux VPS Launch
 
@@ -214,7 +273,7 @@ Use HTTPS before live trading if possible.
 
 ## Docker Setup
 
-The Docker image runs the FastAPI webhook service, Telegram notifications, and BingX execution.
+The Docker image runs the FastAPI webhook service, Telegram notifications, and trading execution.
 
 Build and run:
 
@@ -234,7 +293,7 @@ Stop:
 docker compose down
 ```
 
-`docker-compose.yml` reads `.env`, so `DRY_RUN` and `AUTO_TRADE` are controlled there. Keep `DRY_RUN=true` until the webhook, Telegram, BingX symbol, and demo execution are verified.
+`docker-compose.yml` reads `.env`, so `DRY_RUN` and `AUTO_TRADE` are controlled there. Keep `DRY_RUN=true` until the webhook, Telegram, VantaTrading symbol, and dry-run execution are verified.
 
 ## Railway Deploy
 
@@ -245,13 +304,18 @@ docker compose down
 
 ```env
 WEBHOOK_SECRET=
-BINGX_API_KEY=
-BINGX_SECRET_KEY=
-BINGX_SYMBOL=NASDAQ100-USDT
-BINGX_RISK_PERCENT=5.0
-BINGX_MIN_USDT_STEP=0.01
-BINGX_MAX_NOTIONAL_USDT=1000
-BINGX_SL_TP_OFFSET_POINTS=2.5
+TRADING_PLATFORM=vanta_trading
+VANTA_KEY_ID=
+VANTA_SECRET=
+VANTA_ACCOUNT_ID=bba0bc1c-7cb1-494c-b32b-fa64277e1cfb
+VANTA_BASE_URL=https://app.vantatrading.io
+VANTA_SYMBOL=XYZ100/USDC
+VANTA_ACCOUNT_BALANCE=5000
+VANTA_LEVERAGE=1.5
+RISK_PERCENT=1.0
+MIN_QUOTE_STEP=0.01
+MAX_NOTIONAL_USDC=
+SL_TP_OFFSET_POINTS=0
 DRY_RUN=true
 AUTO_TRADE=false
 MARKET_TIMEZONE=America/New_York
@@ -309,10 +373,11 @@ Example `RAID` alert:
 ## Important Defaults
 
 - The Python bot defaults to `DRY_RUN=true` and `AUTO_TRADE=false`.
-- Duplicate alert IDs are ignored in-process and mapped to deterministic BingX client order IDs.
-- Only one auto-traded signal is accepted per market day; live execution also checks BingX
-  order history so the guard survives Railway restarts.
+- Duplicate alert IDs are ignored in-process.
+- Only one auto-traded signal is accepted per market day; live VantaTrading execution also
+  checks current open positions before placing a new order.
 - The server-side entry cutoff defaults to `16:00` in `America/New_York`.
 - Trade alerts must include `sl` and `tp`.
-- BingX execution requires `BINGX_API_KEY`, `BINGX_SECRET_KEY`, `BINGX_SYMBOL`, `BINGX_RISK_PERCENT`, `BINGX_MIN_USDT_STEP`, `BINGX_MAX_NOTIONAL_USDT`, and `BINGX_SL_TP_OFFSET_POINTS`.
+- VantaTrading execution requires `VANTA_KEY_ID`, `VANTA_SECRET`, `VANTA_ACCOUNT_ID`,
+  `VANTA_SYMBOL`, `RISK_PERCENT`, and `MIN_QUOTE_STEP`.
 - Telegram notifications are disabled unless `TELEGRAM_ENABLED=true`, `TELEGRAM_BOT_TOKEN`, and `TELEGRAM_CHAT_ID` are configured.

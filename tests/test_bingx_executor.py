@@ -6,20 +6,31 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from market_profile_bot.bingx_executor import (
+from market_profile_bot.config import Settings
+from market_profile_bot.models import TradingViewAlert
+from market_profile_bot.platforms.bingx.executor import (
     BingXExecutor,
     _client_order_id,
     _extract_order_id,
     _query_string,
-    adjust_trade_levels,
 )
-from market_profile_bot.config import Settings
-from market_profile_bot.models import TradingViewAlert
 
 
 def settings(**overrides) -> Settings:
     values = {
         "webhook_secret": "secret",
+        "trading_platform": "bingx",
+        "vanta_key_id": None,
+        "vanta_secret": None,
+        "vanta_account_id": "bba0bc1c-7cb1-494c-b32b-fa64277e1cfb",
+        "vanta_base_url": "https://app.vantatrading.io",
+        "vanta_symbol": "XYZ100/USDC",
+        "vanta_account_balance": 5000.0,
+        "vanta_leverage": 1.5,
+        "risk_percent": 1.0,
+        "min_quote_step": 0.01,
+        "max_notional_usdc": None,
+        "sl_tp_offset_points": 0.0,
         "bingx_api_key": None,
         "bingx_secret_key": None,
         "bingx_symbol": "NASDAQ100-USDT",
@@ -62,9 +73,7 @@ def alert() -> TradingViewAlert:
 
 
 def test_bingx_dry_run_uses_live_balance_and_validates_test_order(monkeypatch):
-    executor = BingXExecutor(
-        settings(bingx_api_key="key", bingx_secret_key="secret")
-    )
+    executor = BingXExecutor(settings(bingx_api_key="key", bingx_secret_key="secret"))
     monkeypatch.setattr(executor, "_fetch_balance", lambda: Decimal("1100"))
     monkeypatch.setattr(executor, "_resolve_symbol", lambda: "NCSINASDAQ1002USD-USDT")
     monkeypatch.setattr(executor, "_position_side", lambda direction: "LONG")
@@ -96,11 +105,7 @@ def test_bingx_live_mode_requires_keys():
 
 def test_live_order_runs_preflight_and_safety_checks_before_submission(monkeypatch):
     executor = BingXExecutor(
-        settings(
-            bingx_api_key="key",
-            bingx_secret_key="secret",
-            dry_run=False,
-        )
+        settings(bingx_api_key="key", bingx_secret_key="secret", dry_run=False)
     )
     monkeypatch.setattr(executor, "_fetch_balance", lambda: Decimal("100"))
     monkeypatch.setattr(executor, "_resolve_symbol", lambda: "NCSINASDAQ1002USD-USDT")
@@ -140,7 +145,9 @@ def test_live_order_runs_preflight_and_safety_checks_before_submission(monkeypat
 
 def test_bingx_notional_uses_balance_risk_and_rounds_down_to_usdt_step():
     executor = BingXExecutor(settings(bingx_min_usdt_step=0.1))
-    sized_alert = alert().model_copy(update={"price": 20000.0, "sl": 19833.0, "tp": 20167.0})
+    sized_alert = alert().model_copy(
+        update={"price": 20000.0, "sl": 19833.0, "tp": 20167.0}
+    )
 
     sizing = executor._calculate_trade_sizing(sized_alert, Decimal("100"))
 
@@ -154,24 +161,6 @@ def test_bingx_notional_rejects_value_above_hard_limit():
 
     with pytest.raises(RuntimeError, match="exceeds BINGX_MAX_NOTIONAL_USDT"):
         executor._calculate_trade_sizing(alert(), Decimal("100"))
-
-
-def test_adjust_trade_levels_moves_long_sl_and_tp_outward():
-    adjusted = adjust_trade_levels(alert(), 2.5)
-
-    assert adjusted.sl == 19797.5
-    assert adjusted.tp == 20202.5
-
-
-def test_adjust_trade_levels_moves_short_sl_and_tp_outward():
-    short_alert = alert().model_copy(
-        update={"direction": "SHORT", "sl": 20200.0, "tp": 19800.0}
-    )
-
-    adjusted = adjust_trade_levels(short_alert, 2.5)
-
-    assert adjusted.sl == 20202.5
-    assert adjusted.tp == 19797.5
 
 
 def test_bingx_order_params_map_alert_to_market_order():
@@ -201,9 +190,7 @@ def test_query_string_sorts_params_for_signature():
 
 
 def test_signed_post_uses_raw_canonical_body_for_attached_sl_tp(monkeypatch):
-    executor = BingXExecutor(
-        settings(bingx_api_key="key", bingx_secret_key="secret")
-    )
+    executor = BingXExecutor(settings(bingx_api_key="key", bingx_secret_key="secret"))
     params = {
         "symbol": "BTC-USDT",
         "stopLoss": '{"type":"STOP_MARKET","stopPrice":100}',
@@ -225,7 +212,9 @@ def test_signed_post_uses_raw_canonical_body_for_attached_sl_tp(monkeypatch):
         captured.append(req)
         return Response()
 
-    monkeypatch.setattr("market_profile_bot.bingx_executor.request.urlopen", fake_urlopen)
+    monkeypatch.setattr(
+        "market_profile_bot.platforms.bingx.executor.request.urlopen", fake_urlopen
+    )
 
     executor._signed_request("POST", "/order/test", params)
 
@@ -301,9 +290,7 @@ def test_strategy_order_history_survives_process_restart(monkeypatch):
     )
 
     with pytest.raises(RuntimeError, match="already been placed"):
-        executor._ensure_no_strategy_order_today(
-            alert(), "NCSINASDAQ1002USD-USDT"
-        )
+        executor._ensure_no_strategy_order_today(alert(), "NCSINASDAQ1002USD-USDT")
 
 
 def test_current_state_combines_balance_margin_and_leverage(monkeypatch):
@@ -337,6 +324,7 @@ def test_current_state_combines_balance_margin_and_leverage(monkeypatch):
     assert state.margin_type == "CROSSED"
     assert state.long_leverage == Decimal("10")
     assert state.short_leverage == Decimal("5")
+    assert state.currency == "USDT"
 
 
 def test_resolve_symbol_maps_usdt_display_alias_and_caches_result(monkeypatch):

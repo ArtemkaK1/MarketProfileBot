@@ -7,20 +7,6 @@ from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 
-BINGX_BASE_URL = "https://open-api.bingx.com"
-BINGX_SIZE_FIELD = "quoteOrderQty"
-BINGX_ORDER_ENDPOINT = "/openApi/swap/v2/trade/order"
-BINGX_TEST_ORDER_ENDPOINT = "/openApi/swap/v2/trade/order/test"
-BINGX_BALANCE_ENDPOINT = "/openApi/swap/v2/user/balance"
-BINGX_MARGIN_TYPE_ENDPOINT = "/openApi/swap/v2/trade/marginType"
-BINGX_LEVERAGE_ENDPOINT = "/openApi/swap/v2/trade/leverage"
-BINGX_CONTRACTS_ENDPOINT = "/openApi/swap/v2/quote/contracts"
-BINGX_POSITION_MODE_ENDPOINT = "/openApi/swap/v1/positionSide/dual"
-BINGX_POSITIONS_ENDPOINT = "/openApi/swap/v2/user/positions"
-BINGX_FULL_ORDER_ENDPOINT = "/openApi/swap/v1/trade/fullOrder"
-BINGX_RECV_WINDOW = 5000
-BINGX_ENABLE_SL_TP = True
-
 
 def _bool_env(name: str, default: bool) -> bool:
     value = os.getenv(name)
@@ -54,6 +40,18 @@ def _time_env(name: str, default: time) -> time:
 @dataclass(frozen=True)
 class Settings:
     webhook_secret: str
+    trading_platform: str
+    vanta_key_id: str | None
+    vanta_secret: str | None
+    vanta_account_id: str
+    vanta_base_url: str
+    vanta_symbol: str
+    vanta_account_balance: float
+    vanta_leverage: float
+    risk_percent: float
+    min_quote_step: float
+    max_notional_usdc: float | None
+    sl_tp_offset_points: float
     bingx_api_key: str | None
     bingx_secret_key: str | None
     bingx_symbol: str
@@ -87,6 +85,20 @@ class Settings:
         load_dotenv()
         return cls(
             webhook_secret=os.getenv("WEBHOOK_SECRET", ""),
+            trading_platform=os.getenv("TRADING_PLATFORM", "vanta_trading"),
+            vanta_key_id=os.getenv("VANTA_KEY_ID"),
+            vanta_secret=os.getenv("VANTA_SECRET"),
+            vanta_account_id=os.getenv(
+                "VANTA_ACCOUNT_ID", "bba0bc1c-7cb1-494c-b32b-fa64277e1cfb"
+            ),
+            vanta_base_url=os.getenv("VANTA_BASE_URL", "https://app.vantatrading.io"),
+            vanta_symbol=os.getenv("VANTA_SYMBOL", "XYZ100/USDC"),
+            vanta_account_balance=float(os.getenv("VANTA_ACCOUNT_BALANCE", "5000")),
+            vanta_leverage=float(os.getenv("VANTA_LEVERAGE", "1.5")),
+            risk_percent=float(os.getenv("RISK_PERCENT", "1.0")),
+            min_quote_step=float(os.getenv("MIN_QUOTE_STEP", "0.01")),
+            max_notional_usdc=_float_env("MAX_NOTIONAL_USDC"),
+            sl_tp_offset_points=float(os.getenv("SL_TP_OFFSET_POINTS", "0")),
             bingx_api_key=os.getenv("BINGX_API_KEY"),
             bingx_secret_key=os.getenv("BINGX_SECRET_KEY"),
             bingx_symbol=os.getenv("BINGX_SYMBOL", "NASDAQ100-USDT"),

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "market-profile-bot"
 version = "0.1.0"
-description = "TradingView webhook bot for NASDAQ Pre-NYSE IB BingX execution"
+description = "TradingView webhook bot for NASDAQ Pre-NYSE IB trading execution"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.111,<1",

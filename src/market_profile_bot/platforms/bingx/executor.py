@@ -5,50 +5,34 @@ import hmac
 import json
 import logging
 import time
-from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation, ROUND_FLOOR
 from urllib import error, parse, request
 
-from .config import (
-    BINGX_BASE_URL,
-    BINGX_BALANCE_ENDPOINT,
-    BINGX_CONTRACTS_ENDPOINT,
-    BINGX_ENABLE_SL_TP,
-    BINGX_FULL_ORDER_ENDPOINT,
-    BINGX_LEVERAGE_ENDPOINT,
-    BINGX_MARGIN_TYPE_ENDPOINT,
-    BINGX_ORDER_ENDPOINT,
-    BINGX_POSITION_MODE_ENDPOINT,
-    BINGX_POSITIONS_ENDPOINT,
-    BINGX_RECV_WINDOW,
-    BINGX_SIZE_FIELD,
-    BINGX_TEST_ORDER_ENDPOINT,
-    Settings,
-)
-from .execution import ExecutionResult
-from .models import Direction, TradingViewAlert
+from ...config import Settings
+from ...execution import ExecutionResult
+from ...models import Direction, TradingViewAlert
+from ...trading import AccountState, TradeSizing, adjust_trade_levels
 
 logger = logging.getLogger(__name__)
 
-
-@dataclass(frozen=True)
-class BingXAccountState:
-    symbol: str
-    balance: Decimal
-    available_margin: Decimal | None
-    margin_type: str
-    long_leverage: Decimal
-    short_leverage: Decimal
-
-
-@dataclass(frozen=True)
-class TradeSizing:
-    balance: Decimal
-    risk_amount: Decimal
-    quote_order_qty: Decimal
+BINGX_BASE_URL = "https://open-api.bingx.com"
+BINGX_SIZE_FIELD = "quoteOrderQty"
+BINGX_ORDER_ENDPOINT = "/openApi/swap/v2/trade/order"
+BINGX_TEST_ORDER_ENDPOINT = "/openApi/swap/v2/trade/order/test"
+BINGX_BALANCE_ENDPOINT = "/openApi/swap/v2/user/balance"
+BINGX_MARGIN_TYPE_ENDPOINT = "/openApi/swap/v2/trade/marginType"
+BINGX_LEVERAGE_ENDPOINT = "/openApi/swap/v2/trade/leverage"
+BINGX_CONTRACTS_ENDPOINT = "/openApi/swap/v2/quote/contracts"
+BINGX_POSITION_MODE_ENDPOINT = "/openApi/swap/v1/positionSide/dual"
+BINGX_POSITIONS_ENDPOINT = "/openApi/swap/v2/user/positions"
+BINGX_FULL_ORDER_ENDPOINT = "/openApi/swap/v1/trade/fullOrder"
+BINGX_RECV_WINDOW = 5000
+BINGX_ENABLE_SL_TP = True
 
 
 class BingXExecutor:
+    platform_name = "bingx"
+
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self._resolved_symbol: str | None = None
@@ -95,8 +79,7 @@ class BingXExecutor:
         order_id = _extract_order_id(data)
         return ExecutionResult("filled", "BingX market order submitted", order_id=order_id)
 
-    def current_state(self) -> BingXAccountState:
-        """Return the current USDT perpetual-futures state for the configured symbol."""
+    def current_state(self) -> AccountState:
         self._validate_api_keys()
         api_symbol = self._resolve_symbol()
         common_params = {
@@ -120,13 +103,15 @@ class BingXExecutor:
         margin_data = _response_data(margin_response)
         leverage_data = _response_data(leverage_response)
         try:
-            return BingXAccountState(
+            return AccountState(
+                platform="BingX USDT Futures",
                 symbol=self.settings.bingx_symbol,
                 balance=Decimal(str(balance_data["balance"])),
                 available_margin=_optional_decimal(balance_data.get("availableMargin")),
                 margin_type=str(margin_data["marginType"]).upper(),
                 long_leverage=Decimal(str(leverage_data["longLeverage"])),
                 short_leverage=Decimal(str(leverage_data["shortLeverage"])),
+                currency="USDT",
             )
         except (InvalidOperation, KeyError, TypeError, ValueError) as exc:
             raise RuntimeError("BingX returned an unexpected account-state response") from exc
@@ -413,6 +398,7 @@ class BingXExecutor:
             balance=balance,
             risk_amount=risk_amount,
             quote_order_qty=quote_order_qty,
+            target_risk_amount=risk_amount,
         )
 
 
@@ -468,20 +454,3 @@ def _client_order_id(alert_id: str, *, test: bool = False) -> str:
     prefix = "mpbt" if test else "mpb"
     digest = hashlib.sha256(alert_id.encode("utf-8")).hexdigest()
     return f"{prefix}-{digest[: 40 - len(prefix) - 1]}"
-
-
-def adjust_trade_levels(
-    alert: TradingViewAlert, offset_points: float
-) -> TradingViewAlert:
-    if alert.direction == Direction.NONE or offset_points == 0:
-        return alert
-    if alert.sl is None or alert.tp is None:
-        raise RuntimeError("Cannot adjust BingX levels: alert sl or tp is missing")
-    offset = float(offset_points)
-    if alert.direction == Direction.LONG:
-        sl = alert.sl - offset
-        tp = alert.tp + offset
-    else:
-        sl = alert.sl + offset
-        tp = alert.tp - offset
-    return alert.model_copy(update={"sl": sl, "tp": tp})

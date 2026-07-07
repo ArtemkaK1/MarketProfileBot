@@ -1,1 +1,1 @@
-"""NASDAQ Pre-NYSE IB webhook and BingX execution package."""
+"""NASDAQ Pre-NYSE IB webhook and trading execution package."""
