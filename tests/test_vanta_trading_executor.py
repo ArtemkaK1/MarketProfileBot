@@ -195,6 +195,84 @@ def test_current_state_uses_api_values_and_falls_back_to_config_leverage(monkeyp
     assert state.leverage == Decimal("1.5")
 
 
+def test_current_state_parses_formatted_vanta_decimal_values(monkeypatch):
+    executor = VantaTradingExecutor(settings())
+    monkeypatch.setattr(
+        executor,
+        "_signed_request",
+        lambda method, path, body=None: {
+            "data": {
+                "account": {
+                    "balance": "5,000 USDC",
+                    "leverage": "1:1.5",
+                    "buyingPower": "7,500.00 USDC",
+                    "availableMargin": {"value": "7,250 USDC"},
+                }
+            }
+        },
+    )
+
+    state = executor.current_state()
+
+    assert state.balance == Decimal("5000")
+    assert state.leverage == Decimal("1.5")
+    assert state.buying_power == Decimal("7500.00")
+    assert state.available_margin == Decimal("7250")
+
+
+def test_current_state_falls_back_when_leverage_field_is_not_numeric(monkeypatch):
+    executor = VantaTradingExecutor(settings(vanta_leverage=1.5))
+    monkeypatch.setattr(
+        executor,
+        "_signed_request",
+        lambda method, path, body=None: {
+            "balance": "5000",
+            "leverage": "prop default",
+        },
+    )
+
+    state = executor.current_state()
+
+    assert state.leverage == Decimal("1.5")
+    assert state.buying_power == Decimal("7500.0")
+
+
+def test_current_state_handles_vanta_display_leverage_response(monkeypatch):
+    executor = VantaTradingExecutor(settings(vanta_leverage=1.5))
+    monkeypatch.setattr(
+        executor,
+        "_signed_request",
+        lambda method, path, body=None: {
+            "balanceChange": 0,
+            "balanceChangePercent": 0,
+            "capitalUsed": 0,
+            "currentBalance": 5000,
+            "currentEquity": 5000,
+            "isPassed": False,
+            "leverage": "Current - 0.0000x / Max - 10x",
+            "openPnL": 0,
+            "openPnLPercent": 0,
+            "openPositions": 0,
+            "portfolioBalance": 30000,
+            "portfolioBalanceBreakdown": {
+                "currentBalance": 5000,
+                "marginLeverage": 2,
+                "sumPositionValue": 0,
+            },
+            "portfolioBalanceChangePercent": 200,
+            "totalPnL": 0,
+            "totalPnLPercent": 0,
+            "totalRealizedPnl": 0,
+        },
+    )
+
+    state = executor.current_state()
+
+    assert state.balance == Decimal("5000")
+    assert state.leverage == Decimal("1.5")
+    assert state.buying_power == Decimal("7500.0")
+
+
 def test_signed_request_uses_vanta_canonical_signature(monkeypatch):
     executor = VantaTradingExecutor(settings())
     captured = []

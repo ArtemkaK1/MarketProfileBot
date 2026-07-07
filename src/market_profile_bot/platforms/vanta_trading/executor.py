@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import json
 import logging
+import re
 import secrets
 import time
 from decimal import Decimal, InvalidOperation
@@ -82,6 +83,8 @@ class VantaTradingExecutor:
             payload,
             "balance",
             "equity",
+            "currentBalance",
+            "currentEquity",
             "accountBalance",
             "cashBalance",
             "initialBalance",
@@ -281,14 +284,33 @@ def _first_decimal(
         if key not in values or values[key] is None:
             continue
         try:
-            return Decimal(str(values[key]))
-        except (InvalidOperation, TypeError, ValueError) as exc:
+            return _decimal_value(values[key])
+        except (InvalidOperation, TypeError, ValueError):
+            if default is not None:
+                continue
             raise RuntimeError(
                 f"VantaTrading returned an unexpected decimal value for {key}"
-            ) from exc
+            )
     if default is not None:
         return default
     raise RuntimeError("VantaTrading returned an unexpected account response")
+
+
+def _decimal_value(value: object) -> Decimal:
+    if isinstance(value, dict):
+        for key in ("value", "amount", "balance", "total", "available"):
+            if key in value and value[key] is not None:
+                return _decimal_value(value[key])
+        raise ValueError("decimal object has no known numeric field")
+    if isinstance(value, str):
+        text = value.strip().replace(",", "")
+        if "current" in text.lower() and "max" in text.lower():
+            raise ValueError("display-only leverage string")
+        matches = re.findall(r"-?\d+(?:\.\d+)?", text)
+        if not matches:
+            raise ValueError("decimal string has no numeric value")
+        return Decimal(matches[-1] if ":" in text else matches[0])
+    return Decimal(str(value))
 
 
 def _extract_order_id(data: dict | list) -> int | None:
