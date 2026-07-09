@@ -170,7 +170,7 @@ class VantaTradingExecutor:
             "accountId": self.settings.vanta_account_id,
             "trade": {
                 "execution_type": "MARKET",
-                "trade_pair": self.settings.vanta_symbol,
+                "trade_pair": _api_trade_pair(self.settings.vanta_symbol),
                 "order_type": "LONG" if alert.direction == Direction.LONG else "SHORT",
                 "value": float(sizing.quote_order_qty),
             },
@@ -188,7 +188,7 @@ class VantaTradingExecutor:
                 or position.get("instrument")
                 or ""
             )
-            if symbol and symbol != self.settings.vanta_symbol:
+            if symbol and _api_trade_pair(symbol) != _api_trade_pair(self.settings.vanta_symbol):
                 continue
             amount = _first_decimal(
                 position,
@@ -294,6 +294,10 @@ def _first_decimal(
     if default is not None:
         return default
     raise RuntimeError("VantaTrading returned an unexpected account response")
+
+
+def _api_trade_pair(symbol: str) -> str:
+    return "".join(char for char in symbol.upper() if char.isalnum())
 
 
 def _decimal_value(value: object) -> Decimal:

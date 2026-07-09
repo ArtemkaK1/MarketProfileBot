@@ -13,9 +13,10 @@ from market_profile_bot.models import TradingViewAlert
 from market_profile_bot.platforms.vanta_trading.executor import (
     VANTA_ORDERS_ENDPOINT,
     VantaTradingExecutor,
+    _api_trade_pair,
     _extract_order_id,
 )
-from market_profile_bot.trading import AccountState
+from market_profile_bot.trading import AccountState, TradeSizing
 
 
 def settings(**overrides) -> Settings:
@@ -140,7 +141,7 @@ def test_vanta_live_order_checks_position_then_posts_order(monkeypatch):
                 "accountId": "bba0bc1c-7cb1-494c-b32b-fa64277e1cfb",
                 "trade": {
                     "execution_type": "MARKET",
-                    "trade_pair": "XYZ100/USDC",
+                    "trade_pair": "XYZ100USDC",
                     "order_type": "LONG",
                     "value": 1000.0,
                 },
@@ -177,6 +178,37 @@ def test_vanta_live_order_caps_value_to_buying_power(monkeypatch):
 
     assert result.status == "filled"
     assert requests[0][2]["trade"]["value"] == 7500.0
+
+
+def test_vanta_order_body_normalizes_display_symbol_for_api():
+    executor = VantaTradingExecutor(settings(vanta_symbol="XYZ100/USDC"))
+
+    body = executor._order_body(alert(), TradeSizing(
+        balance=Decimal("5000"),
+        risk_amount=Decimal("50"),
+        quote_order_qty=Decimal("1000"),
+    ))
+
+    assert body["trade"]["trade_pair"] == "XYZ100USDC"
+
+
+def test_api_trade_pair_removes_display_separators():
+    assert _api_trade_pair("XYZ100/USDC") == "XYZ100USDC"
+    assert _api_trade_pair("BTCUSD") == "BTCUSD"
+
+
+def test_open_position_check_matches_normalized_symbol(monkeypatch):
+    executor = VantaTradingExecutor(settings(vanta_symbol="XYZ100/USDC"))
+    monkeypatch.setattr(
+        executor,
+        "_signed_request",
+        lambda method, path, body=None: {
+            "positions": [{"trade_pair": "XYZ100USDC", "value": "1000", "status": "OPEN"}]
+        },
+    )
+
+    with pytest.raises(RuntimeError, match="open VantaTrading position"):
+        executor._ensure_no_open_position()
 
 
 def test_current_state_uses_api_values_and_falls_back_to_config_leverage(monkeypatch):

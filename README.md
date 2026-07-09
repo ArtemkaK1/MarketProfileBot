@@ -146,7 +146,9 @@ VANTA_SYMBOL=XYZ100/USDC
 RISK_PERCENT=1.0
 ```
 
-`VANTA_SYMBOL` defaults to `XYZ100/USDC` and is sent to VantaTrading as the `trade_pair`.
+`VANTA_SYMBOL` defaults to `XYZ100/USDC`. The bot keeps that readable form in messages,
+but sends the slash-free API form as VantaTrading `trade_pair`, for example
+`XYZ100/USDC` -> `XYZ100USDC`.
 
 ## Platform Selection
 
