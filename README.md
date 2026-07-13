@@ -222,7 +222,8 @@ Risk sizing uses the adjusted SL distance.
 With `DRY_RUN=true`, the bot calculates sizing and prepares the VantaTrading order body but
 does not submit `POST /api/v1/trading/orders`. To exercise this path from TradingView, use
 `AUTO_TRADE=true` together with `DRY_RUN=true`. In live mode, the bot checks open positions,
-then submits a market order to VantaTrading.
+then submits a market order to VantaTrading with `stop_loss` and `take_profit` populated
+from the adjusted alert levels.
 
 ## Mac/Linux VPS Launch
 

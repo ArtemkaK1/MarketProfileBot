@@ -166,14 +166,19 @@ class VantaTradingExecutor:
         )
 
     def _order_body(self, alert: TradingViewAlert, sizing: TradeSizing) -> dict:
+        trade = {
+            "execution_type": "MARKET",
+            "trade_pair": _api_trade_pair(self.settings.vanta_symbol),
+            "order_type": "LONG" if alert.direction == Direction.LONG else "SHORT",
+            "value": float(sizing.quote_order_qty),
+        }
+        if alert.sl is not None:
+            trade["stop_loss"] = alert.sl
+        if alert.tp is not None:
+            trade["take_profit"] = alert.tp
         return {
             "accountId": self.settings.vanta_account_id,
-            "trade": {
-                "execution_type": "MARKET",
-                "trade_pair": _api_trade_pair(self.settings.vanta_symbol),
-                "order_type": "LONG" if alert.direction == Direction.LONG else "SHORT",
-                "value": float(sizing.quote_order_qty),
-            },
+            "trade": trade,
         }
 
     def _ensure_no_open_position(self) -> None:

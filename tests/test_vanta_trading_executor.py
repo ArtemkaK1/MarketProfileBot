@@ -144,6 +144,8 @@ def test_vanta_live_order_checks_position_then_posts_order(monkeypatch):
                     "trade_pair": "XYZ100USDC",
                     "order_type": "LONG",
                     "value": 1000.0,
+                    "stop_loss": 19800.0,
+                    "take_profit": 20200.0,
                 },
             },
         )
@@ -183,13 +185,63 @@ def test_vanta_live_order_caps_value_to_buying_power(monkeypatch):
 def test_vanta_order_body_normalizes_display_symbol_for_api():
     executor = VantaTradingExecutor(settings(vanta_symbol="XYZ100/USDC"))
 
-    body = executor._order_body(alert(), TradeSizing(
-        balance=Decimal("5000"),
-        risk_amount=Decimal("50"),
-        quote_order_qty=Decimal("1000"),
-    ))
+    body = executor._order_body(
+        alert(),
+        TradeSizing(
+            balance=Decimal("5000"),
+            risk_amount=Decimal("50"),
+            quote_order_qty=Decimal("1000"),
+        ),
+    )
 
     assert body["trade"]["trade_pair"] == "XYZ100USDC"
+
+
+def test_vanta_order_body_includes_stop_loss_and_take_profit():
+    executor = VantaTradingExecutor(settings())
+
+    body = executor._order_body(
+        alert(),
+        TradeSizing(
+            balance=Decimal("5000"),
+            risk_amount=Decimal("50"),
+            quote_order_qty=Decimal("1000"),
+        ),
+    )
+
+    assert body["trade"]["stop_loss"] == 19800.0
+    assert body["trade"]["take_profit"] == 20200.0
+
+
+def test_vanta_execute_uses_adjusted_stop_loss_and_take_profit(monkeypatch):
+    executor = VantaTradingExecutor(settings(dry_run=False, sl_tp_offset_points=2.5))
+    monkeypatch.setattr(
+        executor,
+        "current_state",
+        lambda: AccountState(
+            platform="VantaTrading",
+            symbol="XYZ100/USDC",
+            balance=Decimal("5000"),
+            buying_power=Decimal("7500"),
+            available_margin=Decimal("7500"),
+            leverage=Decimal("1.5"),
+            currency="USDC",
+        ),
+    )
+    monkeypatch.setattr(executor, "_ensure_no_open_position", lambda: None)
+    requests = []
+
+    def signed_request(method, path, body=None):
+        requests.append((method, path, body))
+        return {"id": "123"}
+
+    monkeypatch.setattr(executor, "_signed_request", signed_request)
+
+    result = executor.execute(alert())
+
+    assert result.status == "filled"
+    assert requests[0][2]["trade"]["stop_loss"] == 19797.5
+    assert requests[0][2]["trade"]["take_profit"] == 20202.5
 
 
 def test_api_trade_pair_removes_display_separators():
